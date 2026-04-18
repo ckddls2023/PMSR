@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agents.schemas import Evidence, Record, SearchResult, Trajectory
-from eval.main import _eval_answer, build_config_from_args, output_from_trajectory
+from eval.main import _eval_answer, build_config_from_args, build_output_path, output_from_trajectory
 
 
 class EvalMainTest(unittest.TestCase):
@@ -49,6 +49,73 @@ class EvalMainTest(unittest.TestCase):
         config = build_config_from_args(args)
 
         self.assertEqual(config.model, "Qwen/Qwen2.5-VL-7B-Instruct")
+
+    def test_output_path_uses_data_jsonl_stem_as_prefix(self) -> None:
+        args = argparse.Namespace(
+            data="data/InfoSeek_val.jsonl",
+            output_dir="outputs",
+            model="Qwen/Qwen3.5-9B",
+            api_base="",
+            api_key="",
+            max_tokens=128,
+            temperature=0.0,
+            timeout=10,
+            retry=0,
+            text_kb="/tmp/text.index",
+            text_metadata="/tmp/text.jsonl",
+            text_embed_api_base="http://text",
+            pmsr_kb="/tmp/pmsr.index",
+            pmsr_metadata="/tmp/pmsr.csv",
+            image_embed_api_base="http://image",
+            pmsr_text_embed_api_base="http://qwen",
+            pmsr_fusion="concat",
+            return_images=True,
+            itercount=3,
+            topk=10,
+            threshold=0.9,
+            verbose=False,
+        )
+        config = build_config_from_args(args)
+
+        output_path = build_output_path(args, config)
+
+        self.assertTrue(config.return_images)
+        self.assertEqual(output_path.name, "InfoSeek_val_Qwen3.5-9B_iter3_topk10_text_pmsr.jsonl")
+
+    def test_build_config_uses_args_return_images(self) -> None:
+        args = argparse.Namespace(
+            model="Qwen/Qwen3.5-9B",
+            api_base="",
+            api_key="",
+            max_tokens=128,
+            temperature=0.0,
+            timeout=10,
+            retry=0,
+            text_kb="",
+            text_metadata="",
+            text_embed_api_base="",
+            pmsr_kb="",
+            pmsr_metadata="",
+            image_embed_api_base="",
+            pmsr_text_embed_api_base="",
+            pmsr_fusion="concat",
+            return_images=False,
+            itercount=1,
+            topk=2,
+            threshold=0.9,
+            verbose=False,
+        )
+
+        config = build_config_from_args(args)
+
+        self.assertFalse(config.return_images)
+
+    def test_parser_defaults_return_images_to_true(self) -> None:
+        from eval.main import build_parser
+
+        args = build_parser().parse_args([])
+
+        self.assertTrue(args.return_images)
 
     def test_output_saves_direct_trajectory_with_dataset_metadata(self) -> None:
         item = {

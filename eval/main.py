@@ -130,9 +130,15 @@ def _clean_model_name(model: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", model.split("/")[-1])
 
 
+def _clean_data_name(data_path: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", Path(data_path).stem)
+
+
 def build_output_path(args: argparse.Namespace, config: AgentConfig) -> Path:
     output_dir = Path(args.output_dir or ROOT / "outputs")
-    stem = _clean_model_name(config.model)
+    stem = _clean_data_name(str(args.data))
+    model_stem = _clean_model_name(config.model)
+    stem = f"{stem}_{model_stem}" if stem else model_stem
     stem += f"_iter{config.max_iter}_topk{config.topk}"
 
     if config.text_kb:
@@ -142,9 +148,6 @@ def build_output_path(args: argparse.Namespace, config: AgentConfig) -> Path:
             stem += "_text"
     if config.pmsr_kb:
         stem += "_pmsr"
-    if not config.return_images:
-        stem += "_noimg"
-
     return output_dir / f"{stem}.jsonl"
 
 
@@ -284,8 +287,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--topk", type=int, default=10)
     parser.add_argument("--threshold", type=float, default=0.9,
                         help="Adaptive stopping similarity threshold τ (default: 0.9)")
-    parser.add_argument("--no-return-images", dest="return_images", action="store_false",
-                        help="Use text passages only from image KB (no base64 image loading)")
+    parser.set_defaults(return_images=True)
 
     parser.add_argument("--bem", action="store_true",
                         help="Measure accuracy with BEM answer-equivalence model")
