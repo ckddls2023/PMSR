@@ -73,7 +73,7 @@ class GoogleSearch(BaseSearch):
         return passages
 
     def _condense_query(self, prompt: str) -> str:
-        if len(prompt) <= 400 or self.client is None:
+        if len(prompt) <= 100 or self.client is None:
             return prompt
         try:
             response = self.client.chat(

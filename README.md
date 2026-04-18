@@ -29,39 +29,11 @@ Knowledge-intensive visual question answering requires models to connect image c
   <img src="assets/method.png" width="95%" alt="PMSR method overview">
 </p>
 
-PMSR performs iterative search and reasoning through three core ideas:
+PMSR progressively constructs a structured reasoning trajectory to enhance knowledge acquisition and synthesis:
 
-- **Progressive reasoning trajectory**: the model maintains a sequence of compact reasoning records instead of making a single-pass prediction.
-- **Dual-scope query generation**: each iteration searches with both a latest-record query and a trajectory-level query to balance local refinement and global context.
-- **Heterogeneous knowledge retrieval**: PMSR retrieves from both multimodal and textual knowledge bases, then synthesizes evidence through compositional reasoning.
-- **Adaptive termination**: the search process can stop when the reasoning trajectory saturates, reducing unnecessary iterations while preserving performance.
-
-## Main Results
-
-### Retrieval Performance
-
-PMSR improves cumulative evidence recall across knowledge-intensive VQA benchmarks.
-
-| Method | InfoSeek Recall | E-VQA Recall | OK-VQA PRR |
-| --- | ---: | ---: | ---: |
-| PMSR (Qwen3-VL-4B) | 93.9 | 64.3 | 92.1 |
-| PMSR (Qwen3-VL-8B) | 94.6 | 67.3 | 97.1 |
-
-### End-to-End Accuracy
-
-| Method | InfoSeek M2KR | E-VQA Single-hop |
-| --- | ---: | ---: |
-| PMSR (Qwen3-VL-4B) | 38.3 | 40.9 |
-| PMSR (Qwen3-VL-8B) | 41.5 | 46.4 |
-| PMSR (Gemini-2.5-Flash) | 50.5 | 59.9 |
-
-### Search-Oriented Multimodal Benchmarks
-
-Using Qwen2.5-VL-7B as the backbone, PMSR also performs strongly on broader search-oriented benchmarks.
-
-| Method | FVQA-test | InfoSeek Human | MMSearch | LiveVQA |
-| --- | ---: | ---: | ---: | ---: |
-| PMSR | 61.2 | 58.2 | 54.3 | 54.2 |
+- **Compact reasoning trajectory**: PMSR maintains the reasoning state as a trajectory of compact records synthesized from retrieved evidence, then uses this trajectory to guide subsequent retrieval and reasoning.
+- **Record-isolated updates**: each iteration synthesizes a new reasoning record solely from newly retrieved evidence, avoiding dependence on the full interaction history.
+- **Dual-scope querying over heterogeneous KBs**: PMSR decouples the latest reasoning state from the overall trajectory to support both local retrieval refinement and trajectory-level reflection, retrieving complementary evidence from heterogeneous knowledge bases and synthesizing it through compositional reasoning.
 
 ## Repository Structure
 
