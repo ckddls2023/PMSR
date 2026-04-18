@@ -84,6 +84,13 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
     text_embed_api_base = (
         getattr(args, "text_embed_api_base", None) or os.getenv("TEXT_EMBED_API_BASE") or ""
     )
+    text_model = (
+        getattr(args, "text_model", None)
+        or os.getenv("TEXT_MODEL")
+        or os.getenv("QWEN_TEXT_EMBED_MODEL")
+        or os.getenv("TEXT_EMBED_MODEL")
+        or "Qwen/Qwen3-Embedding-0.6B"
+    )
 
     pmsr_kb = getattr(args, "pmsr_kb", None) or os.getenv("PMSR_KB") or ""
     pmsr_metadata = getattr(args, "pmsr_metadata", None) or os.getenv("PMSR_METADATA") or ""
@@ -108,6 +115,7 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
         text_kb=text_kb,
         text_metadata=text_metadata,
         text_embed_api_base=text_embed_api_base,
+        text_model=text_model,
         pmsr_kb=pmsr_kb,
         pmsr_metadata=pmsr_metadata,
         image_embed_api_base=image_embed_api_base,
@@ -272,6 +280,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="FAISS index path or web-search URL for text retrieval")
     parser.add_argument("--text-metadata", dest="text_metadata", default=None)
     parser.add_argument("--text-embed-api-base", dest="text_embed_api_base", default=None)
+    parser.add_argument("--text-model", dest="text_model", default=None)
 
     # PMSR image-document KB (concat image+text fusion)
     parser.add_argument("--pmsr-kb", dest="pmsr_kb", default=None)

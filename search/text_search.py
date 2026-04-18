@@ -10,7 +10,7 @@ from search.embedding_client import EmbeddingClient
 from search.faiss_search import FaissKnowledgeBase, l2_normalize
 
 
-DEFAULT_TEXT_MODEL = "intfloat/e5-base-v2"
+DEFAULT_TEXT_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +25,7 @@ class TextSearchConfig:
 
 
 class TextSearch(BaseSearch):
-    """Text FAISS KB search using E5 query embeddings."""
+    """Text FAISS KB search using a text embedding API."""
 
     def __init__(self, config: TextSearchConfig) -> None:
         self.config = config

@@ -332,6 +332,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mllm_metadata")
     parser.add_argument("--image_embed_api_base")
     parser.add_argument("--text_embed_api_base")
+    parser.add_argument("--text_model")
     parser.add_argument("--qwen_text_embed_api_base")
     parser.add_argument("--mllm_embed_api_base")
     parser.add_argument("--google-search-api-key")
@@ -373,12 +374,20 @@ def run_text(args: argparse.Namespace) -> None:
     text_kb = args.text_kb or os.environ.get("TEXT_KB", "")
     text_metadata = args.text_metadata or os.environ.get("TEXT_METADATA", "")
     text_embed_api_base = args.text_embed_api_base or os.environ.get("TEXT_EMBED_API_BASE", "")
+    text_model = (
+        args.text_model
+        or os.environ.get("TEXT_MODEL")
+        or os.environ.get("QWEN_TEXT_EMBED_MODEL")
+        or os.environ.get("TEXT_EMBED_MODEL")
+        or TextSearchConfig.__dataclass_fields__["text_model"].default
+    )
     missing = [
         name
         for name, value in {
             "--text_kb": text_kb,
             "--text_metadata": text_metadata,
             "--text_embed_api_base": text_embed_api_base,
+            "--text_model": text_model,
         }.items()
         if not value
     ]
@@ -389,6 +398,7 @@ def run_text(args: argparse.Namespace) -> None:
             text_kb=text_kb,
             text_metadata=text_metadata,
             text_embed_api_base=text_embed_api_base,
+            text_model=text_model,
             timeout=args.timeout,
         )
     )

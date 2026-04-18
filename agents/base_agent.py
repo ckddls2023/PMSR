@@ -24,7 +24,7 @@ class AgentConfig:
     text_kb: str = ""
     text_metadata: str = ""
     text_embed_api_base: str = ""
-    text_model: str = "intfloat/e5-base-v2"
+    text_model: str = "Qwen/Qwen3-Embedding-0.6B"
 
     # PMSR image-document KB — always concat (image + text) fusion
     pmsr_kb: str = ""
