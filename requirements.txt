@@ -1,0 +1,24 @@
+# Core runtime
+requests>=2.32.0
+numpy>=2.0.0
+tqdm>=4.66.0
+
+# FAISS knowledge-base search
+# For GPU FAISS, install the matching CUDA build separately if needed.
+faiss-cpu>=1.8.0
+
+# Web and image search utilities
+ollama>=0.5.0
+boto3>=1.34.0
+Pillow>=10.0.0
+
+# Model-side utilities for BEM evaluation and ReflectiVA post-processing
+# Install a CUDA-specific torch build separately when required by your cluster.
+torch>=2.1.0
+transformers>=4.56.0,<5.0.0
+accelerate>=0.30.0
+sentencepiece>=0.2.0
+safetensors>=0.4.0
+
+# Local model and embedding servers used by scripts/run_*_server.sh
+vllm>=0.10.0
