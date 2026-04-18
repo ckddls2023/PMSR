@@ -220,6 +220,8 @@ class SearchApiUnitTest(unittest.TestCase):
 
         self.assertEqual(result.evidence.title, "Horatio Hale")
         self.assertEqual(result.evidence.text, "Biography text about the article.")
+        self.assertEqual(result.evidence.score, 0.5)
+        self.assertEqual(result.evidence.rank, 1)
         self.assertEqual(result.to_text_passage(), {"title": "Horatio Hale", "text": "Biography text about the article."})
 
     def test_faiss_metadata_hydrates_image_caption_schema_without_title(self) -> None:

@@ -22,3 +22,6 @@ safetensors>=0.4.0
 
 # Local model and embedding servers used by scripts/run_*_server.sh
 vllm>=0.10.0
+
+# MCP server for exposing PMSR retrieval tools to Codex and other MCP clients
+mcp[cli]>=1.0.0

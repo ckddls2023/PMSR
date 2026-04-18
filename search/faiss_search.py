@@ -153,6 +153,8 @@ class FaissKnowledgeBase:
                 modality="image",
                 image_path=image_path,
                 caption=str(record.get("caption") or record.get("wikipedia_summary") or "").strip(),
+                score=score,
+                rank=rank,
             )
         else:
             evidence = Evidence(
@@ -160,5 +162,7 @@ class FaissKnowledgeBase:
                 modality="text",
                 title=str(record.get("title") or contents_title or "").strip(),
                 text=str(record.get("text") or contents_text or "").strip(),
+                score=score,
+                rank=rank,
             )
         return SearchResult(evidence=evidence, query=query, search_type=search_type)

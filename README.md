@@ -52,6 +52,7 @@ PMSR expects local benchmark data and FAISS knowledge bases prepared before eval
 
 - See [data.md](data.md) for dataset preparation instructions for InfoSeek, E-VQA, LiveVQA, FVQA, InfoSeek Human, and MMSearch.
 - See [KB.md](KB.md) for Wikipedia image-text and text-only knowledge-base preparation.
+- See [MCP.md](MCP.md) to expose PMSR text and multimodal retrieval as MCP tools for Codex.
 
 The evaluation entry point reads any prepared PMSR JSONL file directly:
 
