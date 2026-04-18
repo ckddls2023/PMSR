@@ -13,7 +13,12 @@ from search.faiss_search import FaissKnowledgeBase, l2_normalize
 DEFAULT_IMAGE_MODEL = "google/siglip2-giant-opt-patch16-384"
 DEFAULT_TEXT_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 DEFAULT_MLLM_MODEL = "Qwen/Qwen3-VL-Embedding-2B"
+DEFAULT_QUERY_INSTRUCTION = "Given a web search query, retrieve relevant passages that answer the query"
 FusionMode = Literal["concat", "image", "text", "mllm"]
+
+
+def get_detailed_instruct(task_description: str, query: str) -> str:
+    return f"Instruct: {task_description}\nQuery:{query}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +34,7 @@ class PMSRSearchConfig:
     text_model: str = DEFAULT_TEXT_MODEL
     mllm_model: str = DEFAULT_MLLM_MODEL
     fusion: FusionMode = "concat"
-    instruction: str = "Represent the user's input."
+    instruction: str = DEFAULT_QUERY_INSTRUCTION
     image_weight: float = 1.0
     text_weight: float = 1.0
     timeout: int = 60
@@ -59,7 +64,7 @@ class PMSRSearch(BaseSearch):
         if self.config.fusion == "text":
             if not text:
                 raise ValueError("PMSR text search requires text.")
-            return l2_normalize(self._require_client("text").embed_text(text))
+            return l2_normalize(self._require_client("text").embed_text(self._format_text_query(text)))
         if self.config.fusion == "mllm":
             if not image_path:
                 raise ValueError("PMSR MLLM search requires image_path.")
@@ -80,9 +85,12 @@ class PMSRSearch(BaseSearch):
         ]
         text_vector = [
             self.config.text_weight * value
-            for value in l2_normalize(self._require_client("text").embed_text(text))
+            for value in l2_normalize(self._require_client("text").embed_text(self._format_text_query(text)))
         ]
         return l2_normalize([*image_vector, *text_vector])
+
+    def _format_text_query(self, text: str) -> str:
+        return get_detailed_instruct(self.config.instruction, text)
 
     @staticmethod
     def _coerce_query(query: Any) -> tuple[str, str]:

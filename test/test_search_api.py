@@ -19,7 +19,7 @@ from api import build_pmsr_user_message
 from search.google_image_search import GoogleImageSearch
 from search.google_search import GoogleSearch
 from search.faiss_search import FaissKnowledgeBase, load_metadata
-from search.pmsr_search import PMSRSearch, PMSRSearchConfig
+from search.pmsr_search import PMSRSearch, PMSRSearchConfig, get_detailed_instruct
 from search.text_search import TextSearch, TextSearchConfig
 
 
@@ -27,6 +27,82 @@ DEFAULT_IMAGE = ROOT / "test" / "image.jpg"
 
 
 class SearchApiUnitTest(unittest.TestCase):
+    def test_get_detailed_instruct_formats_qwen_query_instruction(self) -> None:
+        self.assertEqual(
+            get_detailed_instruct(
+                "Given a web search query, retrieve relevant passages that answer the query",
+                "What is the capital of China?",
+            ),
+            "Instruct: Given a web search query, retrieve relevant passages that answer the query\n"
+            "Query:What is the capital of China?",
+        )
+
+    def test_pmsr_concat_wraps_query_text_with_instruction_before_embedding(self) -> None:
+        searcher = object.__new__(PMSRSearch)
+        searcher.config = PMSRSearchConfig(fusion="concat")
+        searcher.image_client = SimpleNamespace(embed_image=lambda image_path: [1.0, 0.0])
+        text_calls: list[str] = []
+        searcher.text_client = SimpleNamespace(embed_text=lambda text: text_calls.append(text) or [0.0, 1.0])
+        searcher.mllm_client = None
+
+        searcher._encode(image_path="https://example.com/query.jpg", text="What is this building?")
+
+        self.assertEqual(
+            text_calls,
+            [
+                "Instruct: Given a web search query, retrieve relevant passages that answer the query\n"
+                "Query:What is this building?"
+            ],
+        )
+
+    def test_pmsr_text_wraps_query_text_with_instruction_before_embedding(self) -> None:
+        searcher = object.__new__(PMSRSearch)
+        searcher.config = PMSRSearchConfig(fusion="text")
+        searcher.image_client = None
+        text_calls: list[str] = []
+        searcher.text_client = SimpleNamespace(embed_text=lambda text: text_calls.append(text) or [0.0, 1.0])
+        searcher.mllm_client = None
+
+        searcher._encode(image_path="", text="Explain gravity")
+
+        self.assertEqual(
+            text_calls,
+            [
+                "Instruct: Given a web search query, retrieve relevant passages that answer the query\n"
+                "Query:Explain gravity"
+            ],
+        )
+
+    def test_text_search_applies_e5_query_prefix_before_embedding(self) -> None:
+        searcher = object.__new__(TextSearch)
+        searcher.config = TextSearchConfig(
+            text_kb="/tmp/index.faiss",
+            text_metadata="/tmp/metadata.jsonl",
+            text_embed_api_base="http://localhost:8011",
+        )
+        text_calls: list[str] = []
+        searcher.text_client = SimpleNamespace(embed_text=lambda text: text_calls.append(text) or [1.0, 0.0])
+        searcher.kb = SimpleNamespace(search_vector=lambda vector, top_k, query, search_type: [])
+
+        searcher.search("What is the capital of China?", top_k=3)
+
+        self.assertEqual(text_calls, ["query: What is the capital of China?"])
+
+    def test_text_search_does_not_duplicate_existing_e5_query_prefix(self) -> None:
+        searcher = object.__new__(TextSearch)
+        searcher.config = TextSearchConfig(
+            text_kb="/tmp/index.faiss",
+            text_metadata="/tmp/metadata.jsonl",
+            text_embed_api_base="http://localhost:8011",
+        )
+        text_calls: list[str] = []
+        searcher.text_client = SimpleNamespace(embed_text=lambda text: text_calls.append(text) or [1.0, 0.0])
+        searcher.kb = SimpleNamespace(search_vector=lambda vector, top_k, query, search_type: [])
+
+        searcher.search("query: Explain gravity", top_k=3)
+
+        self.assertEqual(text_calls, ["query: Explain gravity"])
+
     def test_parser_accepts_qwen_text_embed_api_base_for_pmsr(self) -> None:
         args = build_parser().parse_args(
             [
