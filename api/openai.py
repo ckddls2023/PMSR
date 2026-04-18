@@ -119,40 +119,19 @@ def build_pmsr_user_message(
     content: list[dict[str, Any]] = []
 
     def append_image_pair(passage: Any) -> None:
-        if isinstance(passage, dict):
-            passage_image = passage.get("image_path")
-            if passage_image:
-                content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": image_path_to_data_url(passage_image)},
-                    }
-                )
-            if passage_image:
-                passage_text = passage.get("caption") or passage.get("text")
-            else:
-                passage_title = str(passage.get("title") or "").strip()
-                passage_body = str(passage.get("text") or passage.get("caption") or "").strip()
-                passage_text = (
-                    f"{passage_title}\n{passage_body}"
-                    if passage_title and passage_body and passage_title != passage_body
-                    else passage_body or passage_title
-                )
-            if passage_text:
-                content.append({"type": "text", "text": str(passage_text)})
-        elif isinstance(passage, tuple) and len(passage) == 2:
-            passage_image, passage_text = passage
-            if passage_image:
-                content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": image_path_to_data_url(passage_image)},
-                    }
-                )
-            if passage_text:
-                content.append({"type": "text", "text": f"Passage: {passage_text}"})
-        elif isinstance(passage, str):
-            content.append({"type": "text", "text": f"Passage: {passage}"})
+        if not isinstance(passage, dict):
+            return
+        passage_image = passage.get("image_path")
+        if passage_image:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_path_to_data_url(passage_image)},
+                }
+            )
+        passage_caption = str(passage.get("caption") or "").strip()
+        if passage_caption:
+            content.append({"type": "text", "text": passage_caption})
 
     if image_text_pairs:
         content.append(
@@ -190,7 +169,7 @@ def _format_text_passages(text_passages: list[Any]) -> str:
     for passage in text_passages:
         if isinstance(passage, dict):
             title = str(passage.get("title") or "").strip()
-            text = str(passage.get("text") or passage.get("caption") or "").strip()
+            text = str(passage.get("text") or "").strip()
             knowledge += f"Passage Title: {title}\n"
             knowledge += f"Passage Text: {text}\n\n"
         elif isinstance(passage, str):

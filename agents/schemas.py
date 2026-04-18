@@ -24,21 +24,12 @@ class Evidence:
         return {
             "title": self.title,
             "text": self.text or self.caption,
-            "url": self.url,
-            "source": self.source,
-            "score": self.score,
-            **self.metadata,
         }
 
     def to_image_pair(self) -> dict[str, Any]:
         return {
             "image_path": self.image_path or self.url,
             "caption": self.caption or self.title or self.text,
-            "title": self.title,
-            "url": self.url,
-            "source": self.source,
-            "score": self.score,
-            **self.metadata,
         }
 
 

@@ -57,6 +57,15 @@ def l2_normalize_matrix(values: Any) -> np.ndarray:
     return matrix / norms
 
 
+def split_wiki_contents(contents: str) -> tuple[str, str]:
+    lines = [line.strip() for line in contents.splitlines() if line.strip()]
+    if not lines:
+        return "", ""
+    title = lines[0].strip().strip('"')
+    body = "\n".join(lines[1:]).strip()
+    return title, body or title
+
+
 def build_metadata_row(
     record: dict[str, Any],
     *,
@@ -64,11 +73,20 @@ def build_metadata_row(
     text_field: str,
     caption_field: str,
 ) -> dict[str, Any]:
-    row = dict(record)
-    row["image_path"] = str(record.get(image_field) or "")
-    row["caption"] = str(record.get(caption_field) or record.get(text_field) or "")
-    row["text"] = str(record.get(text_field) or "")
-    return row
+    image_path = str(record.get(image_field) or "").strip()
+    if image_path:
+        return {
+            "image_path": image_path,
+            "caption": str(record.get(caption_field) or record.get(text_field) or "").strip(),
+        }
+
+    title = str(record.get("title") or "").strip()
+    text = str(record.get("text") or "").strip()
+    if not text:
+        title_from_contents, text_from_contents = split_wiki_contents(str(record.get(text_field) or ""))
+        title = title or title_from_contents
+        text = text_from_contents
+    return {"title": title, "text": text}
 
 
 def _valid_image_value(value: str) -> bool:
@@ -154,9 +172,6 @@ def write_metadata_csv(path: str | Path, rows: list[dict[str, Any]]) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames: list[str] = []
     seen: set[str] = set()
-    for preferred in ("image_path", "caption", "text", "title", "url"):
-        seen.add(preferred)
-        fieldnames.append(preferred)
     for row in rows:
         for key in row:
             if key not in seen:
@@ -194,7 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--text-model", default=os.environ.get("QWEN_TEXT_EMBED_MODEL", "Qwen/Qwen3-Embedding-0.6B"))
     parser.add_argument("--image-field", default="image_path")
     parser.add_argument("--text-field", default="wikipedia_summary")
-    parser.add_argument("--caption-field", default="wikipedia_content")
+    parser.add_argument("--caption-field", default="wikipedia_summary")
     parser.add_argument("--fusion", choices=["concat", "image", "text"], default="concat")
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--limit", type=int)

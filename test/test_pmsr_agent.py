@@ -128,8 +128,8 @@ class PMSRAgentQueryTest(unittest.TestCase):
             "Description: A green plant.\n"
             "Based on image, description and knowledge, summarize correct and relevant information with image and question.\n",
         )
-        self.assertEqual(captured["image_text_pairs"], [{"image_path": "/tmp/ref.jpg", "caption": "reference caption", "title": "", "url": "", "source": "pmsr", "score": 0.0}])
-        self.assertEqual(captured["text_passages"], [{"title": "Plant", "text": "Plant knowledge.", "url": "", "source": "text", "score": 0.0}])
+        self.assertEqual(captured["image_text_pairs"], [{"image_path": "/tmp/ref.jpg", "caption": "reference caption"}])
+        self.assertEqual(captured["text_passages"], [{"title": "Plant", "text": "Plant knowledge."}])
 
     def test_iterative_reasoning_prompt_matches_reference(self) -> None:
         agent = make_agent()

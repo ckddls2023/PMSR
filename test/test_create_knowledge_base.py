@@ -80,8 +80,8 @@ class CreateKnowledgeBaseTest(unittest.TestCase):
 
     def test_encode_records_batches_image_and_text_embeddings_for_concat_index(self) -> None:
         records = [
-            {"image_path": "https://example.com/image-a.jpg", "wikipedia_summary": "caption a", "wikipedia_content": "content a"},
-            {"image_path": "https://example.com/image-b.jpg", "wikipedia_summary": "caption b", "wikipedia_content": "content b"},
+            {"image_path": "https://example.com/image-a.jpg", "wikipedia_summary": "caption a", "wikipedia_content": "content a", "url": "drop"},
+            {"image_path": "https://example.com/image-b.jpg", "wikipedia_summary": "caption b", "wikipedia_content": "content b", "title": "drop"},
         ]
         image_client = FakeEmbeddingClient([[1.0, 0.0], [0.0, 1.0]])
         text_client = FakeEmbeddingClient([[0.0, 1.0], [1.0, 0.0]])
@@ -93,18 +93,17 @@ class CreateKnowledgeBaseTest(unittest.TestCase):
             batch_size=2,
             image_field="image_path",
             text_field="wikipedia_summary",
-            caption_field="wikipedia_content",
+            caption_field="wikipedia_summary",
             fusion="concat",
         )
 
         self.assertEqual(image_client.calls, [["https://example.com/image-a.jpg", "https://example.com/image-b.jpg"]])
         self.assertEqual(text_client.calls, [["caption a", "caption b"]])
         self.assertEqual(vectors.shape, (2, 4))
-        self.assertEqual(metadata[0]["image_path"], "https://example.com/image-a.jpg")
-        self.assertEqual(metadata[0]["caption"], "content a")
-        self.assertEqual(metadata[0]["text"], "caption a")
+        self.assertEqual(metadata[0], {"image_path": "https://example.com/image-a.jpg", "caption": "caption a"})
+        self.assertEqual(metadata[1], {"image_path": "https://example.com/image-b.jpg", "caption": "caption b"})
 
-    def test_build_metadata_row_uses_caption_field_and_preserves_source_fields(self) -> None:
+    def test_build_metadata_row_keeps_only_image_path_and_caption_for_image_rows(self) -> None:
         row = build_metadata_row(
             {"image_path": "img.jpg", "summary": "short caption", "content": "long content", "title": "Title"},
             image_field="image_path",
@@ -112,10 +111,17 @@ class CreateKnowledgeBaseTest(unittest.TestCase):
             caption_field="content",
         )
 
-        self.assertEqual(row["image_path"], "img.jpg")
-        self.assertEqual(row["caption"], "long content")
-        self.assertEqual(row["text"], "short caption")
-        self.assertEqual(row["title"], "Title")
+        self.assertEqual(row, {"image_path": "img.jpg", "caption": "long content"})
+
+    def test_build_metadata_row_splits_wikipedia_contents_for_text_rows(self) -> None:
+        row = build_metadata_row(
+            {"contents": '"Article Title"\nArticle body text.', "id": "drop"},
+            image_field="image_path",
+            text_field="contents",
+            caption_field="wikipedia_summary",
+        )
+
+        self.assertEqual(row, {"title": "Article Title", "text": "Article body text."})
 
     def test_l2_normalize_matrix_normalizes_rows(self) -> None:
         normalized = l2_normalize_matrix([[3.0, 4.0], [0.0, 0.0]])

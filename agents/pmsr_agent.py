@@ -87,7 +87,8 @@ class PMSRAgent(BaseAgent):
 
         text_results = self._retrieve_text(query, self.config.topk * 2)
         cached = self._load_cached_image_results(item)
-        if not cached: # When cached reuslts, we utilize cached results
+        pmsr_results: list[SearchResult] = []
+        if not cached:
             pmsr_results = self._retrieve_image(image_path, query, self.config.topk)
         image_results = self._merge_results(cached, pmsr_results)
 
@@ -249,20 +250,14 @@ class PMSRAgent(BaseAgent):
         """Load Google Image Search results cached by scripts/cache_google_image_search.py."""
         raw_list = (item.get("searched_results") or {}).get("google_image") or []
         results: list[SearchResult] = []
-        for i, raw in enumerate(raw_list):
+        for raw in raw_list:
             if not isinstance(raw, dict):
                 continue
             evidence = Evidence(
-                source=raw.get("source") or "google_image",
-                modality=raw.get("modality") or "image",  # type: ignore[arg-type]
-                title=raw.get("title") or "",
-                text=raw.get("text") or "",
-                url=raw.get("url") or "",
+                source="google_image",
+                modality="image",
                 image_path=raw.get("image_path") or "",
                 caption=raw.get("caption") or "",
-                score=float(raw.get("score") or 0.0),
-                rank=int(raw.get("rank") or (i + 1)),
-                metadata=dict(raw.get("metadata") or {}),
             )
             results.append(SearchResult(
                 evidence=evidence,
@@ -345,9 +340,7 @@ class PMSRAgent(BaseAgent):
         return [result.to_text_passage() for result in text_results]
 
     def _to_image_text_pairs(self, image_results: list[SearchResult]) -> list[dict[str, Any]]:
-        if self.config.return_images:
-            return [result.to_image_pair() for result in image_results]
-        return [result.to_text_passage() for result in image_results]
+        return [result.to_image_pair() for result in image_results]
 
     # ------------------------------------------------------------------
     # Builder helpers

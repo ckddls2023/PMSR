@@ -146,21 +146,19 @@ class FaissKnowledgeBase:
         search_type: str,
     ) -> SearchResult:
         contents_title, contents_text = split_wiki_contents(str(record.get("contents") or ""))
-        image_path = str(record.get("image_path") or record.get("thumbnail") or "")
-        caption = str(record.get("caption") or "")
-        explicit_title = str(record.get("title") or contents_title or "")
-        title = explicit_title if image_path else explicit_title or caption
-        text = str(record.get("text") or contents_text or ("" if image_path else caption or title))
-        evidence = Evidence(
-            source=self.source,
-            modality="image" if image_path else "text",
-            title=title,
-            text=text,
-            url=str(record.get("url") or ""),
-            image_path=image_path,
-            caption=caption or title or text,
-            score=score,
-            rank=rank,
-            metadata={"row_id": row_id, **record},
-        )
+        image_path = str(record.get("image_path") or "").strip()
+        if image_path:
+            evidence = Evidence(
+                source=self.source,
+                modality="image",
+                image_path=image_path,
+                caption=str(record.get("caption") or record.get("wikipedia_summary") or "").strip(),
+            )
+        else:
+            evidence = Evidence(
+                source=self.source,
+                modality="text",
+                title=str(record.get("title") or contents_title or "").strip(),
+                text=str(record.get("text") or contents_text or "").strip(),
+            )
         return SearchResult(evidence=evidence, query=query, search_type=search_type)

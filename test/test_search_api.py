@@ -144,7 +144,7 @@ class SearchApiUnitTest(unittest.TestCase):
 
         self.assertEqual(result.evidence.title, "Horatio Hale")
         self.assertEqual(result.evidence.text, "Biography text about the article.")
-        self.assertEqual(result.evidence.metadata["id"], "1")
+        self.assertEqual(result.to_text_passage(), {"title": "Horatio Hale", "text": "Biography text about the article."})
 
     def test_faiss_metadata_hydrates_image_caption_schema_without_title(self) -> None:
         kb = object.__new__(FaissKnowledgeBase)
@@ -164,8 +164,22 @@ class SearchApiUnitTest(unittest.TestCase):
         self.assertEqual(result.evidence.title, "")
         self.assertEqual(result.evidence.image_path, "/tmp/example.jpg")
         self.assertEqual(result.evidence.caption, "A caption for the retrieved image.")
-        self.assertEqual(image_pair["title"], "")
-        self.assertEqual(image_pair["caption"], "A caption for the retrieved image.")
+        self.assertEqual(image_pair, {"image_path": "/tmp/example.jpg", "caption": "A caption for the retrieved image."})
+
+    def test_faiss_metadata_uses_wikipedia_summary_as_image_caption(self) -> None:
+        kb = object.__new__(FaissKnowledgeBase)
+        kb.source = "pmsr_faiss"
+
+        result = kb._record_to_result(
+            {"image_path": "/tmp/example.jpg", "wikipedia_summary": "Wikipedia summary caption.", "title": "Unused"},
+            row_id=4,
+            score=1.0,
+            rank=1,
+            query="image question",
+            search_type="pmsr_concat",
+        )
+
+        self.assertEqual(result.to_image_pair(), {"image_path": "/tmp/example.jpg", "caption": "Wikipedia summary caption."})
 
     def test_jsonl_metadata_loads_with_indexed_row_access(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
