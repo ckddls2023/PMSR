@@ -13,15 +13,9 @@
 
 ## Overview
 
-This is the official repository for **PMSR: Progressive Multimodal Search and Reasoning**, a **multimodal iterative RAG** framework accepted as an **Oral paper at ACL 2026**.
+This is the official repository for **PMSR: Progressive Multimodal Search and Reasoning**, a **multimodal iterative RAG** framework accepted to **ACL 2026 Oral**.
 
 Knowledge-intensive visual question answering requires models to connect image content with external knowledge. Existing multimodal RAG systems commonly rely on a single retrieval pass, which can miss necessary evidence and leave early reasoning errors uncorrected. PMSR addresses this limitation with multimodal iterative retrieval-augmented generation, progressively building a structured reasoning trajectory. At each step, the model generates dual-scope search queries from both the latest reasoning record and the accumulated trajectory, retrieves evidence from heterogeneous knowledge bases, and composes the evidence into a compact updated record.
-
-## News
-
-- **2026.04**: PMSR was accepted to **ACL 2026 as an Oral paper**.
-- **2026.04**: The arXiv version was updated.
-- Code, data processing scripts, and evaluation instructions will be released soon.
 
 ## Method
 

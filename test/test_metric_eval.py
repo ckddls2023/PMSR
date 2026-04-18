@@ -65,6 +65,23 @@ class MetricEvalTest(unittest.TestCase):
         self.assertEqual(flags, [True])
         self.assertEqual(accuracy, 1.0)
 
+    def test_evaluate_accuracy_uses_top_level_answer_when_answer_eval_is_missing(self) -> None:
+        predictions = [
+            {
+                "question": "What kind of medical usage has this plant?",
+                "trajectory": {"final_answer": "The medical usage is urinary tract infections, antioxidant."},
+                "answer": [
+                    "help urinary tract infections and as an antioxidant.",
+                    "urinary tract infections, antioxidant",
+                ],
+            }
+        ]
+
+        accuracy, flags = metric_eval.evaluate_accuracy(predictions)
+
+        self.assertEqual(flags, [True])
+        self.assertEqual(accuracy, 1.0)
+
     def test_evaluate_accuracy_uses_existing_answer_eval_when_present(self) -> None:
         predictions = [
             {"prediction": "wrong text", "gold_answer": ["France"], "answer_eval": True},

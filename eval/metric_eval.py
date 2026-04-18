@@ -195,6 +195,10 @@ def _reference_values(prediction: dict[str, Any]) -> list[Any]:
     if not _is_missing(gold_answer):
         return _as_list(gold_answer)
 
+    answer = prediction.get("answer")
+    if not _is_missing(answer):
+        return _as_list(answer)
+
     input_row = prediction.get("input")
     if isinstance(input_row, dict):
         answer_eval = input_row.get("answer_eval")
