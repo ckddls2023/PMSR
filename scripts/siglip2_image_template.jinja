@@ -1,0 +1,11 @@
+{%- for message in messages -%}
+{%- if message["content"] is string -%}
+{{- message["content"] -}}
+{%- else -%}
+{%- for content in message["content"] -%}
+{%- if content["type"] == "text" -%}
+{{- content["text"] -}}
+{%- endif -%}
+{%- endfor -%}
+{%- endif -%}
+{%- endfor -%}
