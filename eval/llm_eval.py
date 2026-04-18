@@ -112,6 +112,51 @@ def extract_last_reasoning_record(total_pred: str) -> str:
     return ""
 
 
+def _trajectory(row: dict[str, Any]) -> dict[str, Any]:
+    trajectory = row.get("trajectory")
+    return trajectory if isinstance(trajectory, dict) else {}
+
+
+def extract_last_reasoning_from_row(row: dict[str, Any]) -> str:
+    trajectory = _trajectory(row)
+    records = trajectory.get("records")
+    if isinstance(records, list):
+        for record in reversed(records):
+            if isinstance(record, dict) and record.get("reasoning"):
+                return str(record.get("reasoning") or "")
+    return extract_last_reasoning_record(str(trajectory.get("all_reasoning") or row.get("total_pred") or ""))
+
+
+def extract_model_response(row: dict[str, Any], eval_record: bool = False) -> str:
+    if eval_record:
+        return extract_last_reasoning_from_row(row)
+
+    trajectory = _trajectory(row)
+    if trajectory.get("final_answer") not in (None, ""):
+        return str(trajectory.get("final_answer") or "")
+    return str(row.get("prediction") or row.get("answer") or "")
+
+
+def extract_gold_answer(row: dict[str, Any]) -> Any:
+    answer_eval = row.get("answer_eval")
+    if not isinstance(answer_eval, bool) and answer_eval not in (None, "", "nan"):
+        return answer_eval
+
+    gold_answer = row.get("gold_answer")
+    if gold_answer not in (None, "", "nan"):
+        return gold_answer
+
+    input_row = row.get("input")
+    if isinstance(input_row, dict):
+        answer_eval = input_row.get("answer_eval")
+        if not isinstance(answer_eval, bool) and answer_eval not in (None, "", "nan"):
+            return answer_eval
+        if input_row.get("answer") not in (None, "", "nan"):
+            return input_row.get("answer")
+
+    return row.get("answer", "")
+
+
 # ---------------------------------------------------------------------------
 # I/O helpers
 # ---------------------------------------------------------------------------
@@ -171,12 +216,8 @@ def process_data(input_file: str, output_file: str, eval_record: bool = False) -
                 continue
 
             question = row.get("question", "")
-            gold_answer = row.get("gold_answer", row.get("answer", ""))
-
-            if eval_record:
-                model_response = extract_last_reasoning_record(row.get("total_pred", ""))
-            else:
-                model_response = row.get("prediction", row.get("answer", ""))
+            gold_answer = extract_gold_answer(row)
+            model_response = extract_model_response(row, eval_record=eval_record)
 
             user_prompt = USER_PROMPT_TEMPLATE.format(
                 question=question,

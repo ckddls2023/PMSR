@@ -149,12 +149,48 @@ def build_output_path(args: argparse.Namespace, config: AgentConfig) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Prediction / evaluation
+# Trajectory output / evaluation
 # ---------------------------------------------------------------------------
 
 
-def prediction_from_trajectory(item: dict[str, Any], traj: Trajectory) -> dict[str, Any]:
-    answer = traj.final_answer
+def _record_to_dict(record: Any) -> dict[str, Any]:
+    return {
+        "step": record.step,
+        "record_level_query": record.local_query,
+        "trajectory_level_query": record.global_query,
+        "text_results": [result.to_text_passage() for result in record.text_results],
+        "image_results": [result.to_image_pair() for result in record.image_results],
+        "reasoning": record.reasoning,
+        "follow_up_question": record.follow_up_question,
+        "elapsed": round(float(record.elapsed), 2),
+    }
+
+
+def trajectory_to_dict(traj: Trajectory) -> dict[str, Any]:
+    return {
+        "question": traj.question,
+        "image_path": traj.image_path,
+        "final_answer": traj.final_answer,
+        "records": [_record_to_dict(record) for record in traj.records],
+        "all_reasoning": traj.all_reasoning(),
+        "all_knowledge": traj.all_knowledge(),
+        "history_questions": traj.history_questions(),
+    }
+
+
+def _gold_answer(item: dict[str, Any]) -> Any:
+    if "gold_answer" in item:
+        return item.get("gold_answer")
+    return item.get("answer", "")
+
+
+def _answer_eval_targets(item: dict[str, Any]) -> Any:
+    if "answer_eval" in item:
+        return item.get("answer_eval")
+    return item.get("answer", item.get("gold_answer", ""))
+
+
+def output_from_trajectory(item: dict[str, Any], traj: Trajectory) -> dict[str, Any]:
     return {
         "question_id": item.get("question_id", item.get("dataset_image_ids", "")),
         "image_id": item.get("image_id", item.get("dataset_image_ids", "")),
@@ -163,14 +199,11 @@ def prediction_from_trajectory(item: dict[str, Any], traj: Trajectory) -> dict[s
         "image_path": item.get("image_path", ""),
         "choices": item.get("choices", []),
         "label": item.get("label", ""),
-        "gold_answer": item.get("gold_answer", item.get("answer", "")),
+        "gold_answer": _gold_answer(item),
+        "answer_eval": _answer_eval_targets(item),
         "entity_text": item.get("entity_text", ""),
-        "answer": answer,
-        "answer_eval": _eval_answer(answer, item),
-        "knowledge": traj.all_knowledge(),
-        "history_questions": traj.history_questions(),
-        "total_pred": traj.all_reasoning(),
-        "prediction": answer,
+        "data_split": item.get("data_split", ""),
+        "trajectory": trajectory_to_dict(traj),
     }
 
 
@@ -306,16 +339,18 @@ def main() -> int:
             print(f"[warn] item {i} failed: {exc}", file=sys.stderr)
             continue
 
-        pred = prediction_from_trajectory(item, traj)
-        pred["elapsed"] = round(time.time() - t_start, 2)
-        predictions.append(pred)
+        output = output_from_trajectory(item, traj)
+        output["elapsed"] = round(time.time() - t_start, 2)
+        predictions.append(output)
 
         if args.verbose:
+            answer = traj.final_answer
+            correct = _eval_answer(answer, item)
             print(
                 f"[{i + 1}/{len(data)}] {item.get('question', '')[:60]!r}"
-                f" → {pred['answer'][:50]!r}"
-                f" | {'✓' if pred['answer_eval'] else '✗'}"
-                f" | {pred['elapsed']:.1f}s"
+                f" → {answer[:50]!r}"
+                f" | {'✓' if correct else '✗'}"
+                f" | {output['elapsed']:.1f}s"
             )
 
         if len(predictions) % 5 == 0:

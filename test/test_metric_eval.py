@@ -35,12 +35,12 @@ class MetricEvalTest(unittest.TestCase):
         predictions = [
             {
                 "question": "Where?",
-                "prediction": "It is in Paris, France.",
+                "trajectory": {"final_answer": "It is in Paris, France."},
                 "gold_answer": ["France"],
             },
             {
                 "question": "Where?",
-                "prediction": "It is in Italy.",
+                "trajectory": {"final_answer": "It is in Italy."},
                 "gold_answer": ["France"],
             },
         ]
@@ -54,7 +54,7 @@ class MetricEvalTest(unittest.TestCase):
         predictions = [
             {
                 "question": "What is the architectural style?",
-                "prediction": "The building is gongen-zukuri.",
+                "trajectory": {"final_answer": "The building is gongen-zukuri."},
                 "gold_answer": "Ishi-no-ma-zukuri",
                 "answer_eval": ["Ishi-no-ma-zukuri", "Ishinoma-zukuri", "gongen-zukuri"],
             }
@@ -80,7 +80,7 @@ class MetricEvalTest(unittest.TestCase):
         predictions = [
             {
                 "question": "Where?",
-                "prediction": "It is in Paris.",
+                "trajectory": {"final_answer": "It is in Paris."},
                 "gold_answer": "France",
             }
         ]
@@ -98,14 +98,25 @@ class MetricEvalTest(unittest.TestCase):
 
     def test_evaluate_recall_uses_entity_text_against_knowledge(self) -> None:
         predictions = [
-            {"entity_text": ["Smilax bona-nox"], "knowledge": "The plant is Smilax bona-nox."},
-            {"entity_text": ["Cornus canadensis"], "knowledge": "The plant is Smilax bona-nox."},
+            {"entity_text": ["Smilax bona-nox"], "trajectory": {"all_knowledge": "The plant is Smilax bona-nox."}},
+            {"entity_text": ["Cornus canadensis"], "trajectory": {"all_knowledge": "The plant is Smilax bona-nox."}},
         ]
 
         recall, flags = metric_eval.evaluate_recall(predictions)
 
         self.assertEqual(flags, [True, False])
         self.assertEqual(recall, 0.5)
+
+    def test_reasoning_helpers_read_nested_trajectory(self) -> None:
+        prediction = {
+            "trajectory": {
+                "all_reasoning": "Reasoning Record #1:\nFirst.\n\nReasoning Record #2:\nSecond.",
+                "records": [{"reasoning": "First."}, {"reasoning": "Second."}],
+            }
+        }
+
+        self.assertEqual(metric_eval.count_reasoning_records_from_prediction(prediction), 2)
+        self.assertEqual(metric_eval.extract_last_reasoning_record_from_prediction(prediction), "Second.")
 
 
 if __name__ == "__main__":

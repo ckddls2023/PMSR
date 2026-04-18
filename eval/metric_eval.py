@@ -1,21 +1,9 @@
-"""Metrics for current PMSR JSONL outputs.
+"""Metrics for PMSR JSONL outputs.
 
-This module intentionally targets the repository's current prediction schema:
-
-```json
-{
-  "question": "...",
-  "prediction": "...",
-  "answer": "...",
-  "gold_answer": ["..."],
-  "answer_eval": true,
-  "entity_text": ["..."],
-  "knowledge": "..."
-}
-```
-
-It reports CEM accuracy by default, BEM accuracy when `--bem` is supplied, and
-retrieval recall from the retrieved `knowledge` field.
+Current runs store model output under ``trajectory``. Accuracy reads
+``trajectory.final_answer`` and recall reads ``trajectory.all_knowledge``.
+Legacy flat rows with ``prediction``, ``answer``, ``knowledge``, and
+``total_pred`` remain readable for older outputs.
 """
 
 from __future__ import annotations
@@ -114,8 +102,69 @@ def _as_list(value: Any) -> list[Any]:
     return [value]
 
 
+def _trajectory(prediction: dict[str, Any]) -> dict[str, Any]:
+    trajectory = prediction.get("trajectory")
+    return trajectory if isinstance(trajectory, dict) else {}
+
+
 def _prediction_text(prediction: dict[str, Any]) -> str:
+    trajectory = _trajectory(prediction)
+    if trajectory.get("final_answer") not in (None, ""):
+        return str(trajectory.get("final_answer") or "")
     return str(prediction.get("prediction") or prediction.get("answer") or "")
+
+
+def _knowledge_text(prediction: dict[str, Any]) -> str:
+    trajectory = _trajectory(prediction)
+    if trajectory.get("all_knowledge") not in (None, ""):
+        return str(trajectory.get("all_knowledge") or "")
+    if prediction.get("knowledge") not in (None, ""):
+        return str(prediction.get("knowledge") or "")
+
+    parts: list[str] = []
+    records = trajectory.get("records")
+    if isinstance(records, list):
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            for passage in record.get("text_results") or []:
+                if not isinstance(passage, dict):
+                    continue
+                title = str(passage.get("title") or "").strip()
+                text = str(passage.get("text") or "").strip()
+                entry = f"{title}\n{text}" if title and text and title != text else text or title
+                if entry:
+                    parts.append(entry)
+            for pair in record.get("image_results") or []:
+                if not isinstance(pair, dict):
+                    continue
+                caption = str(pair.get("caption") or "").strip()
+                if caption:
+                    parts.append(caption)
+    return "\n\n".join(parts)
+
+
+def _all_reasoning_text(prediction: dict[str, Any]) -> str:
+    trajectory = _trajectory(prediction)
+    if trajectory.get("all_reasoning") not in (None, ""):
+        return str(trajectory.get("all_reasoning") or "")
+    return str(prediction.get("total_pred") or "")
+
+
+def count_reasoning_records_from_prediction(prediction: dict[str, Any]) -> int:
+    records = _trajectory(prediction).get("records")
+    if isinstance(records, list):
+        return len([record for record in records if isinstance(record, dict) and record.get("reasoning")])
+    return count_reasoning_records(_all_reasoning_text(prediction))
+
+
+def extract_last_reasoning_record_from_prediction(prediction: dict[str, Any]) -> str:
+    records = _trajectory(prediction).get("records")
+    if isinstance(records, list):
+        for record in reversed(records):
+            if isinstance(record, dict) and record.get("reasoning"):
+                return str(record.get("reasoning") or "")
+    return extract_last_reasoning_record(_all_reasoning_text(prediction))
 
 
 def _reference_values(prediction: dict[str, Any]) -> list[Any]:
@@ -126,6 +175,15 @@ def _reference_values(prediction: dict[str, Any]) -> list[Any]:
     gold_answer = prediction.get("gold_answer")
     if gold_answer not in (None, "", "nan"):
         return _as_list(gold_answer)
+
+    input_row = prediction.get("input")
+    if isinstance(input_row, dict):
+        answer_eval = input_row.get("answer_eval")
+        if not isinstance(answer_eval, bool) and answer_eval not in (None, "", "nan"):
+            return _as_list(answer_eval)
+        answer = input_row.get("answer")
+        if answer not in (None, "", "nan"):
+            return _as_list(answer)
 
     return []
 
@@ -293,7 +351,7 @@ def evaluate_recall(
 ) -> tuple[float, list[bool]]:
     flags: list[bool] = []
     for pred in predictions:
-        knowledge = str(pred.get("knowledge") or "")
+        knowledge = _knowledge_text(pred)
         targets = _target_values_for_recall(pred)
         flags.append(any(_knowledge_match(target, knowledge) for target in targets) if knowledge else False)
     return _score(flags), flags
@@ -317,7 +375,7 @@ def _print_verbose_failures(predictions: list[dict[str, Any]], flags: list[bool]
                 image_path=pred.get("image_path", "N/A"),
                 gold=pred.get("gold_answer", "N/A"),
                 prediction=_prediction_text(pred),
-                record=extract_last_reasoning_record(str(pred.get("total_pred", ""))),
+                record=extract_last_reasoning_record_from_prediction(pred),
             )
         )
 
@@ -337,7 +395,7 @@ def main() -> int:
     print(f"{metric_name}: {accuracy:.2%} ({sum(accuracy_flags)}/{total})")
     print(f"Recall: {recall:.2%} ({sum(recall_flags)}/{total})")
 
-    record_counts = [count_reasoning_records(str(pred.get("total_pred", ""))) for pred in predictions]
+    record_counts = [count_reasoning_records_from_prediction(pred) for pred in predictions]
     nonzero_counts = [count for count in record_counts if count > 0]
     if nonzero_counts:
         print(f"Average reasoning records: {sum(nonzero_counts) / len(nonzero_counts):.2f}")
