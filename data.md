@@ -8,6 +8,8 @@ PMSR expects evaluation data in JSONL format. Each line should contain the quest
 
 The repository ignores local datasets and outputs by default. Keep downloaded benchmark files under `data/` or pass an absolute path with `--data`.
 
+For broader and more up-to-date textual knowledge, we recommend trying the latest English Wikipedia monthly split from [wikipedia-monthly](https://huggingface.co/datasets/omarkamali/wikipedia-monthly). This can be used to expand or replace the text-only Wikipedia KB after converting the English split into PMSR metadata format and encoding it with the text embedding server. See [KB.md](KB.md) for text KB indexing instructions.
+
 ## InfoSeek
 
 For PMSR evaluation, we use the **M2KR split of InfoSeek validation**. Download it from the [Multi-task Multi-modal Knowledge Retrieval Benchmark (M2KR)](https://huggingface.co/datasets/BByrneLab/multi_task_multi_modal_knowledge_retrieval_benchmark_M2KR) and use the `Infoseek_data` subset.
