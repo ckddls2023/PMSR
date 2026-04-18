@@ -107,6 +107,36 @@ class MetricEvalTest(unittest.TestCase):
         self.assertEqual(flags, [True, False])
         self.assertEqual(recall, 0.5)
 
+    def test_evaluate_recall_does_not_use_prr_when_entity_text_exists_but_misses(self) -> None:
+        predictions = [
+            {
+                "entity_text": "Nezu Shrine",
+                "answer_eval": ["Ishi-no-ma-zukuri", "Ishinoma-zukuri", "gongen-zukuri"],
+                "trajectory": {
+                    "all_knowledge": "Japanese Buddhist architecture includes the gongen-zukuri style."
+                },
+            }
+        ]
+
+        recall, flags = metric_eval.evaluate_recall(predictions)
+
+        self.assertEqual(flags, [False])
+        self.assertEqual(recall, 0.0)
+
+    def test_evaluate_recall_uses_prr_when_entity_text_is_missing(self) -> None:
+        predictions = [
+            {
+                "entity_text": "",
+                "answer_eval": "['NT', 'Near Threatened', 'LR/nt']",
+                "trajectory": {"all_knowledge": "This species is listed as Near Threatened."},
+            }
+        ]
+
+        recall, flags = metric_eval.evaluate_recall(predictions)
+
+        self.assertEqual(flags, [True])
+        self.assertEqual(recall, 1.0)
+
     def test_reasoning_helpers_read_nested_trajectory(self) -> None:
         prediction = {
             "trajectory": {

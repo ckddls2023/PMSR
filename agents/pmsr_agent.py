@@ -118,14 +118,14 @@ class PMSRAgent(BaseAgent):
         local_query = self._build_record_level_query(traj)
         global_query = self._build_trajectory_level_query(traj)
 
-        # Dual-scope retrieval
+        # Dual-scope retrieval, 20 for text passages, 10 for image-text pairs
         text_results = self._merge_results(
             self._retrieve_text(local_query, self.config.topk),
             self._retrieve_text(global_query, self.config.topk),
         )
         image_results = self._merge_results(
-            self._retrieve_image(image_path, local_query, self.config.topk),
-            self._retrieve_image(image_path, global_query, self.config.topk),
+            self._retrieve_image(image_path, local_query, self.config.topk//2),
+            self._retrieve_image(image_path, global_query, self.config.topk//2),
         )
 
         reasoning = self._synthesize_reasoning(image_path, question, text_results, image_results)

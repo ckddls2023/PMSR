@@ -9,9 +9,11 @@ Legacy flat rows with ``prediction``, ``answer``, ``knowledge``, and
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import string
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -92,7 +94,24 @@ def extract_last_reasoning_record(total_prediction: str) -> str:
     return "" if last_match_pos == -1 else text[last_match_pos:]
 
 
+def _is_missing(value: Any) -> bool:
+    return value is None or value == "" or str(value).strip().lower() == "nan"
+
+
+def _maybe_literal(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text or text[0] not in "[{(":
+        return value
+    try:
+        return ast.literal_eval(text)
+    except (SyntaxError, ValueError):
+        return value
+
+
 def _as_list(value: Any) -> list[Any]:
+    value = _maybe_literal(value)
     if value is None or value == "":
         return []
     if isinstance(value, list):
@@ -169,20 +188,20 @@ def extract_last_reasoning_record_from_prediction(prediction: dict[str, Any]) ->
 
 def _reference_values(prediction: dict[str, Any]) -> list[Any]:
     answer_eval = prediction.get("answer_eval")
-    if not isinstance(answer_eval, bool) and answer_eval not in (None, "", "nan"):
+    if not isinstance(answer_eval, bool) and not _is_missing(answer_eval):
         return _as_list(answer_eval)
 
     gold_answer = prediction.get("gold_answer")
-    if gold_answer not in (None, "", "nan"):
+    if not _is_missing(gold_answer):
         return _as_list(gold_answer)
 
     input_row = prediction.get("input")
     if isinstance(input_row, dict):
         answer_eval = input_row.get("answer_eval")
-        if not isinstance(answer_eval, bool) and answer_eval not in (None, "", "nan"):
+        if not isinstance(answer_eval, bool) and not _is_missing(answer_eval):
             return _as_list(answer_eval)
         answer = input_row.get("answer")
-        if answer not in (None, "", "nan"):
+        if not _is_missing(answer):
             return _as_list(answer)
 
     return []
@@ -324,9 +343,17 @@ def evaluate_accuracy(
 
 def _target_values_for_recall(prediction: dict[str, Any]) -> list[Any]:
     entity_text = prediction.get("entity_text")
-    if entity_text not in (None, ""):
+    if not _is_missing(entity_text):
         return _as_list(entity_text)
     return _reference_values(prediction)
+
+
+def _strip_accents(value: str) -> str:
+    return "".join(
+        char
+        for char in unicodedata.normalize("NFKD", value)
+        if not unicodedata.combining(char)
+    )
 
 
 def _knowledge_match(target: Any, knowledge: str) -> bool:
@@ -345,6 +372,29 @@ def _knowledge_match(target: Any, knowledge: str) -> bool:
     return preprocess_answer(target_text) in normalized_knowledge
 
 
+def _recall_match(prediction: dict[str, Any], knowledge: str) -> bool:
+    entity_text = _maybe_literal(prediction.get("entity_text"))
+    if isinstance(entity_text, list):
+        for entity in entity_text:
+            entity_text_value = str(entity)
+            if "|" in entity_text_value:
+                names = [name for name in entity_text_value.split("|") if name.strip()]
+                if names and all(_knowledge_match(name, knowledge) for name in names):
+                    return True
+            elif _knowledge_match(entity_text_value, knowledge) or _knowledge_match(_strip_accents(entity_text_value), knowledge):
+                return True
+        return False
+
+    if not _is_missing(entity_text):
+        return _knowledge_match(entity_text, knowledge)
+
+    if any(_knowledge_match(target, knowledge) for target in _reference_values(prediction)):
+        return True
+
+    answer = prediction.get("answer")
+    return any(_knowledge_match(target, knowledge) for target in _as_list(answer))
+
+
 def evaluate_recall(
     predictions: list[dict[str, Any]],
     args: argparse.Namespace | None = None,
@@ -352,8 +402,7 @@ def evaluate_recall(
     flags: list[bool] = []
     for pred in predictions:
         knowledge = _knowledge_text(pred)
-        targets = _target_values_for_recall(pred)
-        flags.append(any(_knowledge_match(target, knowledge) for target in targets) if knowledge else False)
+        flags.append(_recall_match(pred, knowledge) if knowledge else False)
     return _score(flags), flags
 
 
