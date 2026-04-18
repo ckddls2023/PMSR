@@ -18,7 +18,7 @@ if str(ROOT) not in sys.path:
 from agents.base_agent import AgentConfig
 from agents.pmsr_agent import PMSRAgent
 from agents.schemas import Trajectory
-from eval.utils import evaluate_accuracy, evaluate_bem, evaluate_recall
+from eval.metric_eval import evaluate_accuracy, evaluate_recall
 
 
 # ---------------------------------------------------------------------------
@@ -323,13 +323,9 @@ def main() -> int:
 
     save_jsonl(output_path, predictions)
 
-    if args.bem:
-        acc, _ = evaluate_bem(predictions)
-        acc_label = "Accuracy (BEM)"
-    else:
-        acc, _ = evaluate_accuracy(predictions)
-        acc_label = "Accuracy"
-    ret, _ = evaluate_recall(predictions)
+    acc, _ = evaluate_accuracy(predictions, args)
+    acc_label = "Accuracy (BEM)" if args.bem else "Accuracy (CEM)"
+    ret, _ = evaluate_recall(predictions, args)
 
     print("\n==== Results ====")
     print(f"Data:     {args.data}")

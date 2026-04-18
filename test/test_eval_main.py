@@ -15,6 +15,13 @@ from eval.main import _eval_answer, build_config_from_args, prediction_from_traj
 
 
 class EvalMainTest(unittest.TestCase):
+    def test_main_imports_metrics_from_metric_eval(self) -> None:
+        import eval.main as eval_main
+        import eval.metric_eval as metric_eval
+
+        self.assertIs(eval_main.evaluate_accuracy, metric_eval.evaluate_accuracy)
+        self.assertIs(eval_main.evaluate_recall, metric_eval.evaluate_recall)
+
     def test_build_config_strips_vllm_model_prefix(self) -> None:
         args = argparse.Namespace(
             model="vllm:Qwen/Qwen2.5-VL-7B-Instruct",
