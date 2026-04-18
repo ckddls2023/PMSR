@@ -67,6 +67,12 @@ def save_jsonl(path: str | Path, records: list[dict[str, Any]]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _infer_text_model(text_kb: str) -> str:
+    if "e5" in text_kb.lower():
+        return "intfloat/e5-base-v2"
+    return "Qwen/Qwen3-Embedding-0.6B"
+
+
 def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
     model = str(args.model or "")
     if model.startswith("vllm:"):
@@ -89,7 +95,7 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
         or os.getenv("TEXT_MODEL")
         or os.getenv("QWEN_TEXT_EMBED_MODEL")
         or os.getenv("TEXT_EMBED_MODEL")
-        or "Qwen/Qwen3-Embedding-0.6B"
+        or _infer_text_model(text_kb)
     )
 
     pmsr_kb = getattr(args, "pmsr_kb", None) or os.getenv("PMSR_KB") or ""

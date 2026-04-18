@@ -88,6 +88,8 @@ _SYSTEM_PROMPT = (
     "You are a visual question answering expert. "
     "Follow a ReACT loop: think about what information is missing, call a search tool to retrieve it, "
     "observe the results, and repeat until you have enough evidence to answer. "
+    "You must call at least one image_search or pmsr_search to retrieve visually relevant documents "
+    "before answering — do not rely on text_search alone. "
     "When you have sufficient evidence, provide the final answer directly without calling any more tools."
 )
 
@@ -163,6 +165,8 @@ class ReACTAgent(BaseAgent):
 
             global_query = ""
             latest_reasoning = ""
+            latest_t_results: list[SearchResult] = []
+            latest_i_results: list[SearchResult] = []
 
             for tc in tool_calls_raw:
                 call_id = tc.get("id") or ""
@@ -180,10 +184,12 @@ class ReACTAgent(BaseAgent):
                     tool_name, args, image_path, latest_reasoning
                 )
 
-                # Consolidate this tool call's results into reasoning; only this is kept
+                # Consolidate this tool call's results; VLM sees only the synthesis
                 latest_reasoning = self._synthesize_reasoning(
                     image_path, question, t_results, i_results
                 )
+                latest_t_results = t_results
+                latest_i_results = i_results
 
                 chat_history.append({
                     "role": "tool",
@@ -204,6 +210,8 @@ class ReACTAgent(BaseAgent):
                 step=step,
                 local_query=local_query,
                 global_query=global_query or local_query,
+                text_results=latest_t_results,
+                image_results=latest_i_results,
                 reasoning=latest_reasoning,
                 elapsed=round(time.time() - t0, 2),
             ))
