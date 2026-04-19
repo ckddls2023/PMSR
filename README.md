@@ -65,6 +65,8 @@ python eval/main.py \
   --topk 10
 ```
 
+Retrieved images are returned by default. For search-oriented benchmark runs that should search the PMSR KB without returning retrieved images, add `--without-image`.
+
 To run PMSR with MLLM image-text retrieval, first set the MLLM embedding KB and endpoint in `.env`:
 
 ```bash
@@ -121,7 +123,8 @@ python eval/main.py \
   --itercount 3 \
   --topk 10 \
   --web-search \
-  --pmsr-fusion mllm
+  --pmsr-fusion mllm \
+  --without-image
 ```
 
 Use the same cache-first pattern for the other open-web datasets:

@@ -347,6 +347,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--threshold", type=float, default=0.9,
                         help="Adaptive stopping similarity threshold τ (default: 0.9)")
     parser.set_defaults(return_images=True)
+    parser.add_argument("--without-image", dest="return_images", action="store_false",
+                        help="Disable returning retrieved images; use this for search-oriented benchmarks over PMSR_KB.")
 
     parser.add_argument("--bem", action="store_true",
                         help="Measure accuracy with BEM answer-equivalence model")

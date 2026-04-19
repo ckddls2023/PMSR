@@ -201,6 +201,13 @@ class EvalMainTest(unittest.TestCase):
 
         self.assertTrue(args.return_images)
 
+    def test_parser_without_image_sets_return_images_to_false(self) -> None:
+        from eval.main import build_parser
+
+        args = build_parser().parse_args(["--without-image"])
+
+        self.assertFalse(args.return_images)
+
     def test_web_search_flag_overrides_text_kb_with_ollama_web_search(self) -> None:
         from eval.main import build_parser
 

@@ -40,6 +40,14 @@ class MainReactTest(unittest.TestCase):
         self.assertIn("_web", output_path.name)
         self.assertIn("_google_lens", output_path.name)
 
+    def test_parser_without_image_sets_return_images_to_false(self) -> None:
+        args = build_parser().parse_args(["--without-image"])
+
+        config = build_config_from_args(args)
+
+        self.assertFalse(args.return_images)
+        self.assertFalse(config.return_images)
+
     def test_react_config_supports_mllm_pmsr_search(self) -> None:
         args = build_parser().parse_args(
             [
