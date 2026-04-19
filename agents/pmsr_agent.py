@@ -305,8 +305,16 @@ class PMSRAgent(BaseAgent):
             return 0.0
         try:
             from search.faiss_search import l2_normalize
-            q_vecs = [l2_normalize(self._embed_client.embed_text(t)) for t in query_texts]
-            c_vecs = [l2_normalize(self._embed_client.embed_text(t)) for t in candidate_texts]
+            q_vecs = [
+                l2_normalize(self._embed_similarity_text(t))
+                for t in self._format_similarity_queries(query_texts)
+            ]
+            c_vecs = [
+                l2_normalize(self._embed_similarity_text(t))
+                for t in self._format_similarity_queries(candidate_texts)
+            ]
+            if not q_vecs or not c_vecs:
+                return 0.0
             return max(
                 float(sum(q * c for q, c in zip(qv, cv)))
                 for qv in q_vecs
@@ -316,6 +324,39 @@ class PMSRAgent(BaseAgent):
             if self.config.verbose:
                 print(f"[Adaptive] similarity computation failed: {exc}")
             return 0.0
+
+    def _embed_similarity_text(self, text: str) -> list[float]:
+        if self.config.similarity_embed_mode == "mllm":
+            from search.pmsr_search import DEFAULT_QUERY_INSTRUCTION
+            return self._embed_client.embed_mllm_text(
+                text=text,
+                instruction=DEFAULT_QUERY_INSTRUCTION,
+            )
+        return self._embed_client.embed_text(text)
+
+    def _format_similarity_queries(self, texts: list[str]) -> list[str]:
+        """Apply the text embedding query format used by the active similarity model."""
+        return [
+            formatted
+            for text in texts
+            if (formatted := self._format_similarity_query(text))
+        ]
+
+    def _format_similarity_query(self, text: str) -> str:
+        """Format adaptive-stop text before sending it to the embedding API."""
+        query = str(text or "").strip()
+        if not query:
+            return ""
+
+        model = self.config.similarity_model
+        if "e5-base-v2" in model.lower() and not query.startswith("query: "):
+            query = f"query: {query}"
+
+        from search.text_search import query_char_limit
+        limit = query_char_limit(model)
+        if limit is not None:
+            query = query[:limit]
+        return query
 
     # ------------------------------------------------------------------
     # Merging / formatting
@@ -397,12 +438,12 @@ class PMSRAgent(BaseAgent):
     def _build_embed_client(self):  # type: ignore[return]
         """EmbeddingClient used solely for adaptive stopping similarity computation."""
         cfg = self.config
-        if not cfg.text_embed_api_base:
+        if not cfg.similarity_embed_api_base:
             return None
         from search.embedding_client import EmbeddingClient
         return EmbeddingClient(
-            api_base=cfg.text_embed_api_base,
-            model=cfg.text_model,
+            api_base=cfg.similarity_embed_api_base,
+            model=cfg.similarity_model,
             api_key=cfg.api_key,
         )
 

@@ -315,6 +315,63 @@ class PMSRAgentQueryTest(unittest.TestCase):
             ["The image contains a green plant.", "Smilax bona-nox medical uses"],
         )
 
+    def test_similarity_formats_e5_inputs_before_embedding(self) -> None:
+        agent = make_agent()
+        agent.config.similarity_model = "intfloat/e5-base-v2"
+        calls: list[str] = []
+
+        class FakeEmbedClient:
+            def embed_text(self, text: str) -> list[float]:
+                calls.append(text)
+                return [1.0, 0.0]
+
+        agent._embed_client = FakeEmbedClient()
+
+        score = agent._check_similarity(["a" * 600], ["b" * 600])
+
+        self.assertEqual(score, 1.0)
+        self.assertEqual(calls[0], "query: " + ("a" * (511 - len("query: "))))
+        self.assertEqual(calls[1], "query: " + ("b" * (511 - len("query: "))))
+        self.assertEqual(len(calls[0]), 511)
+
+    def test_similarity_formats_qwen3_inputs_before_embedding(self) -> None:
+        agent = make_agent()
+        agent.config.similarity_model = "Qwen/Qwen3-Embedding-0.6B"
+        calls: list[str] = []
+
+        class FakeEmbedClient:
+            def embed_text(self, text: str) -> list[float]:
+                calls.append(text)
+                return [1.0, 0.0]
+
+        agent._embed_client = FakeEmbedClient()
+
+        score = agent._check_similarity(["c" * 33000], ["d" * 33000])
+
+        self.assertEqual(score, 1.0)
+        self.assertEqual(calls[0], "c" * 32767)
+        self.assertEqual(calls[1], "d" * 32767)
+
+    def test_similarity_uses_mllm_text_embedding_when_configured(self) -> None:
+        agent = make_agent()
+        agent.config.similarity_embed_mode = "mllm"
+        agent.config.similarity_model = "Qwen/Qwen3-VL-Embedding-2B"
+        calls: list[tuple[str, str]] = []
+
+        class FakeEmbedClient:
+            def embed_mllm_text(self, *, text: str, instruction: str) -> list[float]:
+                calls.append((text, instruction))
+                return [1.0, 0.0]
+
+        agent._embed_client = FakeEmbedClient()
+
+        score = agent._check_similarity(["new query"], ["old query"])
+
+        self.assertEqual(score, 1.0)
+        self.assertEqual(calls[0][0], "new query")
+        self.assertEqual(calls[1][0], "old query")
+        self.assertIn("retrieve relevant passages", calls[0][1])
+
 
 if __name__ == "__main__":
     unittest.main()

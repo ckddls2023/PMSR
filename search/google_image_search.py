@@ -43,8 +43,8 @@ class GoogleImageSearch(BaseSearch):
     ) -> None:
         self.api_key = api_key if api_key is not None else os.environ.get("SCRAPINGDOG_API_KEY", "")
         self.api_url = api_url
-        self.upload_bucket = upload_bucket or os.environ.get("GOOGLE_LENS_UPLOAD_BUCKET", "images0707")
-        self.upload_region = upload_region or os.environ.get("GOOGLE_LENS_UPLOAD_REGION", "ap-southeast-2")
+        self.upload_bucket = upload_bucket if upload_bucket is not None else os.environ.get("GOOGLE_LENS_UPLOAD_BUCKET", "")
+        self.upload_region = upload_region if upload_region is not None else os.environ.get("GOOGLE_LENS_UPLOAD_REGION", "")
         self.ollama_api_key = ollama_api_key if ollama_api_key is not None else os.environ.get("OLLAMA_API_KEY", "")
         self.ollama_model = ollama_model
         self.summarize = summarize
@@ -144,6 +144,10 @@ class GoogleImageSearch(BaseSearch):
         return self.upload_base64_image(encoded, original_name=path.name)
 
     def upload_base64_image(self, base64_image: str, *, original_name: str = "query.jpg") -> str:
+        if not self.upload_bucket:
+            raise ValueError("Missing Google Lens upload bucket. Set GOOGLE_LENS_UPLOAD_BUCKET.")
+        if not self.upload_region:
+            raise ValueError("Missing Google Lens upload region. Set GOOGLE_LENS_UPLOAD_REGION.")
         try:
             import boto3
         except ImportError as exc:

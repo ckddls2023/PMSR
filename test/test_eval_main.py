@@ -233,6 +233,49 @@ class EvalMainTest(unittest.TestCase):
         self.assertEqual(config.text_metadata, "")
         self.assertEqual(config.text_embed_api_base, "")
 
+    def test_similarity_embedding_prefers_mllm_over_text_embed_api_base(self) -> None:
+        from eval.main import build_parser
+
+        args = build_parser().parse_args(
+            [
+                "--text-embed-api-base",
+                "http://e5",
+                "--pmsr-text-embed-api-base",
+                "http://qwen-text",
+                "--mllm-embed-api-base",
+                "http://mllm",
+                "--mllm-model",
+                "Qwen/Qwen3-VL-Embedding-2B",
+            ]
+        )
+
+        config = build_config_from_args(args)
+
+        self.assertEqual(config.text_embed_api_base, "http://e5")
+        self.assertEqual(config.similarity_embed_api_base, "http://mllm")
+        self.assertEqual(config.similarity_model, "Qwen/Qwen3-VL-Embedding-2B")
+        self.assertEqual(config.similarity_embed_mode, "mllm")
+
+    def test_similarity_embedding_falls_back_to_qwen_text_env_not_text_env(self) -> None:
+        from unittest.mock import patch
+        from eval.main import build_parser
+
+        args = build_parser().parse_args([])
+        with patch.dict(
+            "os.environ",
+            {
+                "TEXT_EMBED_API_BASE": "http://e5",
+                "QWEN_TEXT_EMBED_API_BASE": "http://qwen-text",
+            },
+            clear=True,
+        ):
+            config = build_config_from_args(args)
+
+        self.assertEqual(config.text_embed_api_base, "http://e5")
+        self.assertEqual(config.similarity_embed_api_base, "http://qwen-text")
+        self.assertEqual(config.similarity_model, "Qwen/Qwen3-Embedding-0.6B")
+        self.assertEqual(config.similarity_embed_mode, "text")
+
     def test_output_saves_direct_trajectory_with_dataset_metadata(self) -> None:
         item = {
             "question_id": "fvqa_test_0",

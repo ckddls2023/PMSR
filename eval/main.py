@@ -108,12 +108,13 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
     image_embed_api_base = (
         getattr(args, "image_embed_api_base", None) or os.getenv("IMAGE_EMBED_API_BASE") or ""
     )
-    pmsr_text_embed_api_base = (
+    qwen_text_embed_api_base = (
         getattr(args, "pmsr_text_embed_api_base", None)
         or os.getenv("PMSR_TEXT_EMBED_API_BASE")
         or os.getenv("QWEN_TEXT_EMBED_API_BASE")
         or ""
     )
+    pmsr_text_embed_api_base = qwen_text_embed_api_base
     mllm_kb = getattr(args, "mllm_kb", None) or os.getenv("MLLM_KB") or ""
     mllm_metadata = getattr(args, "mllm_metadata", None) or os.getenv("MLLM_METADATA") or ""
     mllm_embed_api_base = (
@@ -124,6 +125,19 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
         or os.getenv("MLLM_EMBED_MODEL")
         or "Qwen/Qwen3-VL-Embedding-2B"
     )
+    qwen_text_model = os.getenv("QWEN_TEXT_EMBED_MODEL") or "Qwen/Qwen3-Embedding-0.6B"
+    if mllm_embed_api_base:
+        similarity_embed_api_base = mllm_embed_api_base
+        similarity_model = mllm_model
+        similarity_embed_mode = "mllm"
+    elif qwen_text_embed_api_base:
+        similarity_embed_api_base = qwen_text_embed_api_base
+        similarity_model = qwen_text_model
+        similarity_embed_mode = "text"
+    else:
+        similarity_embed_api_base = ""
+        similarity_model = qwen_text_model
+        similarity_embed_mode = "text"
 
     return AgentConfig(
         model=model,
@@ -146,6 +160,9 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
         mllm_metadata=mllm_metadata,
         mllm_embed_api_base=mllm_embed_api_base,
         mllm_model=mllm_model,
+        similarity_embed_api_base=similarity_embed_api_base,
+        similarity_model=similarity_model,
+        similarity_embed_mode=similarity_embed_mode,
         return_images=args.return_images,
         max_iter=args.itercount,
         topk=args.topk,

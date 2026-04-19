@@ -272,18 +272,38 @@ class SearchApiUnitTest(unittest.TestCase):
         self.assertEqual(results[0].evidence.image_path, "https://example.com/thumb.jpg")
         self.assertEqual(results[0].evidence.caption, "Smilax bona-nox")
 
-    def test_google_image_upload_uses_images0707_and_hashed_object_name(self) -> None:
-        searcher = GoogleImageSearch(api_key="dummy", ollama_api_key="", summarize=False)
+    def test_google_image_upload_uses_env_bucket_and_hashed_object_name(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "GOOGLE_LENS_UPLOAD_BUCKET": "private-bucket",
+                "GOOGLE_LENS_UPLOAD_REGION": "us-west-2",
+            },
+        ):
+            searcher = GoogleImageSearch(api_key="dummy", ollama_api_key="", summarize=False)
 
         with patch("boto3.client") as mock_client:
             mock_s3 = mock_client.return_value
             url = searcher.upload_base64_image("aGVsbG8=", original_name="query.jpg")
 
-        self.assertTrue(url.startswith("https://images0707.s3.ap-southeast-2.amazonaws.com/"))
+        self.assertTrue(url.startswith("https://private-bucket.s3.us-west-2.amazonaws.com/"))
         self.assertTrue(url.endswith(".jpg"))
         put_object_kwargs = mock_s3.put_object.call_args.kwargs
-        self.assertEqual(put_object_kwargs["Bucket"], "images0707")
+        self.assertEqual(put_object_kwargs["Bucket"], "private-bucket")
         self.assertRegex(put_object_kwargs["Key"], r"^[a-f0-9]{24}\.jpg$")
+
+    def test_google_image_upload_requires_bucket_configuration(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "GOOGLE_LENS_UPLOAD_BUCKET": "",
+                "GOOGLE_LENS_UPLOAD_REGION": "",
+            },
+        ):
+            searcher = GoogleImageSearch(api_key="dummy", ollama_api_key="", summarize=False)
+
+        with self.assertRaisesRegex(ValueError, "GOOGLE_LENS_UPLOAD_BUCKET"):
+            searcher.upload_base64_image("aGVsbG8=", original_name="query.jpg")
 
     def test_google_image_lens_request_matches_scrapingdog_api_shape(self) -> None:
         searcher = GoogleImageSearch(api_key="dummy", ollama_api_key="", summarize=False)

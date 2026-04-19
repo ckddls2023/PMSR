@@ -39,6 +39,13 @@ class AgentConfig:
     mllm_embed_api_base: str = ""
     mllm_model: str = "Qwen/Qwen3-VL-Embedding-2B"
 
+    # Adaptive stopping similarity embedding. This is intentionally separate
+    # from text retrieval so TEXT_EMBED_API_BASE is not reused for query
+    # similarity when a better Qwen/MLLM embedding endpoint is available.
+    similarity_embed_api_base: str = ""
+    similarity_model: str = "Qwen/Qwen3-Embedding-0.6B"
+    similarity_embed_mode: str = "text"
+
     # Whether to include image content in VLM passages from pmsr/cached results
     # True  → to_image_pair()  (VLM loads actual images)
     # False → to_text_passage() (captions/titles only)
