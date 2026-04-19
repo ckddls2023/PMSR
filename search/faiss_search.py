@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import csv
 import json
+import sys
 from array import array
 from pathlib import Path
 from typing import Any, Sequence
 
 from agents.schemas import Evidence, SearchResult
 from search.base_search import clamp_top_k
+
+MAX_IMAGE_TEXT_CHARS = 4096
 
 
 def l2_normalize(values: Sequence[float]) -> list[float]:
@@ -30,7 +33,7 @@ class MetadataStore:
 
 class ListMetadataStore(MetadataStore):
     def __init__(self, rows: list[dict[str, Any]]) -> None:
-        self.rows = rows
+        self.rows = [normalize_metadata_row(row) for row in rows]
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -61,7 +64,7 @@ class JsonlMetadataStore(MetadataStore):
         with self.path.open("rb") as handle:
             handle.seek(self.offsets[row_id])
             line = handle.readline().decode("utf-8")
-        return json.loads(line) if line.strip() else {}
+        return normalize_metadata_row(json.loads(line)) if line.strip() else {}
 
     def _ensure_offset(self, row_id: int | None) -> None:
         if self._eof:
@@ -92,8 +95,38 @@ def load_metadata(path: str | Path) -> MetadataStore:
         if isinstance(payload, list):
             return ListMetadataStore([row for row in payload if isinstance(row, dict)])
         raise ValueError(f"JSON metadata must be a list of objects: {metadata_path}")
+    set_csv_field_size_limit()
     with metadata_path.open("r", encoding="utf-8", newline="") as handle:
         return ListMetadataStore(list(csv.DictReader(handle)))
+
+
+def set_csv_field_size_limit() -> None:
+    limit = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(limit)
+            return
+        except OverflowError:
+            limit = limit // 10
+
+
+def truncate_image_text(text: Any) -> str:
+    return str(text or "").strip()[:MAX_IMAGE_TEXT_CHARS]
+
+
+def normalize_metadata_row(row: dict[str, Any]) -> dict[str, Any]:
+    image_path = str(row.get("image_path") or "").strip()
+    if not image_path:
+        return row
+    caption = (
+        row.get("caption")
+        or row.get("wikipedia_summary")
+        or row.get("text")
+        or row.get("wikipedia_content")
+        or row.get("contents")
+        or ""
+    )
+    return {"image_path": image_path, "caption": truncate_image_text(caption)}
 
 
 def split_wiki_contents(contents: str) -> tuple[str, str]:
@@ -152,7 +185,7 @@ class FaissKnowledgeBase:
                 source=self.source,
                 modality="image",
                 image_path=image_path,
-                caption=str(record.get("caption") or record.get("wikipedia_summary") or "").strip(),
+                caption=truncate_image_text(record.get("caption") or record.get("wikipedia_summary") or ""),
                 score=score,
                 rank=rank,
             )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -327,6 +328,35 @@ class SearchApiUnitTest(unittest.TestCase):
 
         self.assertEqual(result.to_image_pair(), {"image_path": "/tmp/example.jpg", "caption": "Wikipedia summary caption."})
 
+    def test_faiss_image_caption_is_truncated_for_large_metadata(self) -> None:
+        kb = object.__new__(FaissKnowledgeBase)
+        kb.source = "mllm_faiss"
+        caption = "x" * 5000
+
+        result = kb._record_to_result(
+            {"image_path": "/tmp/example.jpg", "caption": caption},
+            row_id=5,
+            score=1.0,
+            rank=1,
+            query="image question",
+            search_type="pmsr_mllm",
+        )
+
+        self.assertEqual(len(result.evidence.caption), 4096)
+        self.assertEqual(result.evidence.caption, "x" * 4096)
+
+    def test_csv_metadata_loads_and_truncates_fields_larger_than_default_csv_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            metadata_path = Path(tmpdir) / "metadata.csv"
+            metadata_path.write_text(
+                "image_path,caption,url\n/tmp/example.jpg," + ("x" * 140000) + ",https://example.com\n",
+                encoding="utf-8",
+            )
+
+            metadata = load_metadata(metadata_path)
+
+            self.assertEqual(metadata.get(0), {"image_path": "/tmp/example.jpg", "caption": "x" * 4096})
+
     def test_jsonl_metadata_loads_with_indexed_row_access(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             metadata_path = Path(tmpdir) / "metadata.jsonl"
@@ -339,6 +369,19 @@ class SearchApiUnitTest(unittest.TestCase):
 
             self.assertEqual(len(metadata), 2)
             self.assertEqual(metadata.get(1)["contents"], "second")
+
+    def test_jsonl_metadata_truncates_image_rows_on_access(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            metadata_path = Path(tmpdir) / "metadata.jsonl"
+            metadata_path.write_text(
+                json.dumps({"image_path": "/tmp/example.jpg", "wikipedia_summary": "y" * 5000, "url": "drop"})
+                + "\n",
+                encoding="utf-8",
+            )
+
+            metadata = load_metadata(metadata_path)
+
+            self.assertEqual(metadata.get(0), {"image_path": "/tmp/example.jpg", "caption": "y" * 4096})
 
     def test_pmsr_message_orders_image_pairs_text_passages_image_then_prompt(self) -> None:
         message = build_pmsr_user_message(
