@@ -201,6 +201,38 @@ class EvalMainTest(unittest.TestCase):
 
         self.assertTrue(args.return_images)
 
+    def test_web_search_flag_overrides_text_kb_with_ollama_web_search(self) -> None:
+        from eval.main import build_parser
+
+        args = build_parser().parse_args(["--web-search"])
+        args.model = "Qwen/Qwen3.5-9B"
+        args.api_base = ""
+        args.api_key = ""
+        args.max_tokens = 128
+        args.temperature = 0.0
+        args.timeout = 10
+        args.retry = 0
+        args.pmsr_kb = ""
+        args.pmsr_metadata = ""
+        args.mllm_kb = ""
+        args.mllm_metadata = ""
+        args.mllm_embed_api_base = ""
+        args.mllm_model = ""
+        args.image_embed_api_base = ""
+        args.pmsr_text_embed_api_base = ""
+        args.pmsr_fusion = "concat"
+        args.return_images = True
+        args.itercount = 1
+        args.topk = 2
+        args.threshold = 0.9
+        args.verbose = False
+
+        config = build_config_from_args(args)
+
+        self.assertEqual(config.text_kb, "https://ollama.com/api/web_search")
+        self.assertEqual(config.text_metadata, "")
+        self.assertEqual(config.text_embed_api_base, "")
+
     def test_output_saves_direct_trajectory_with_dataset_metadata(self) -> None:
         item = {
             "question_id": "fvqa_test_0",

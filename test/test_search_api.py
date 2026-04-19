@@ -20,7 +20,7 @@ from api import build_pmsr_user_message
 from search.google_image_search import GoogleImageSearch
 from search.google_search import GoogleSearch
 from search.embedding_client import EmbeddingClient
-from search.faiss_search import FaissKnowledgeBase, load_metadata
+from search.faiss_search import CsvMetadataStore, FaissKnowledgeBase, load_metadata
 from search.pmsr_search import (
     DEFAULT_MLLM_PASSAGE_INSTRUCTION,
     DEFAULT_MLLM_QUERY_INSTRUCTION,
@@ -171,6 +171,33 @@ class SearchApiUnitTest(unittest.TestCase):
         searcher.search("query: Explain gravity", top_k=3)
 
         self.assertEqual(text_calls, ["query: Explain gravity"])
+
+    def test_text_search_truncates_e5_query_to_511_chars_before_embedding(self) -> None:
+        searcher = object.__new__(TextSearch)
+        searcher.config = TextSearchConfig(
+            text_kb="/tmp/index.faiss",
+            text_metadata="/tmp/metadata.jsonl",
+            text_embed_api_base="http://localhost:8011",
+            text_model="intfloat/e5-base-v2",
+        )
+        formatted = searcher._format_query("a" * 600)
+
+        self.assertEqual(formatted, "query: " + ("a" * (511 - len("query: "))))
+        self.assertEqual(len(formatted), 511)
+
+    def test_text_search_truncates_qwen3_query_to_32767_chars_before_embedding(self) -> None:
+        searcher = object.__new__(TextSearch)
+        searcher.config = TextSearchConfig(
+            text_kb="/tmp/index.faiss",
+            text_metadata="/tmp/metadata.jsonl",
+            text_embed_api_base="http://localhost:8012",
+            text_model="Qwen/Qwen3-Embedding-0.6B",
+            query_prefix="",
+        )
+        formatted = searcher._format_query("b" * 33000)
+
+        self.assertEqual(formatted, "b" * 32767)
+        self.assertEqual(len(formatted), 32767)
 
     def test_parser_accepts_qwen_text_embed_api_base_for_pmsr(self) -> None:
         args = build_parser().parse_args(
@@ -355,6 +382,8 @@ class SearchApiUnitTest(unittest.TestCase):
 
             metadata = load_metadata(metadata_path)
 
+            self.assertIsInstance(metadata, CsvMetadataStore)
+            self.assertEqual(len(metadata.rows), 0)
             self.assertEqual(metadata.get(0), {"image_path": "/tmp/example.jpg", "caption": "x" * 4096})
 
     def test_jsonl_metadata_loads_with_indexed_row_access(self) -> None:

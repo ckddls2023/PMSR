@@ -85,11 +85,16 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
     )
     api_key = getattr(args, "api_key", None) or os.getenv("OPENAI_API_KEY") or ""
 
-    text_kb = getattr(args, "text_kb", None) or os.getenv("TEXT_KB") or ""
-    text_metadata = getattr(args, "text_metadata", None) or os.getenv("TEXT_METADATA") or ""
-    text_embed_api_base = (
-        getattr(args, "text_embed_api_base", None) or os.getenv("TEXT_EMBED_API_BASE") or ""
-    )
+    if getattr(args, "web_search", False):
+        text_kb = "https://ollama.com/api/web_search"
+        text_metadata = ""
+        text_embed_api_base = ""
+    else:
+        text_kb = getattr(args, "text_kb", None) or os.getenv("TEXT_KB") or ""
+        text_metadata = getattr(args, "text_metadata", None) or os.getenv("TEXT_METADATA") or ""
+        text_embed_api_base = (
+            getattr(args, "text_embed_api_base", None) or os.getenv("TEXT_EMBED_API_BASE") or ""
+        )
     text_model = (
         getattr(args, "text_model", None)
         or os.getenv("TEXT_MODEL")
@@ -303,6 +308,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--text-metadata", dest="text_metadata", default=None)
     parser.add_argument("--text-embed-api-base", dest="text_embed_api_base", default=None)
     parser.add_argument("--text-model", dest="text_model", default=None)
+    parser.add_argument("--web-search", action="store_true",
+                        help="Use Ollama web_search for text retrieval instead of TEXT_KB/text FAISS.")
 
     # PMSR image-document KB (concat image+text fusion)
     parser.add_argument("--pmsr-kb", dest="pmsr_kb", default=None)

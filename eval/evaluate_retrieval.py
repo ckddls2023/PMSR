@@ -167,6 +167,34 @@ def parse_top_ks(values: list[str] | None) -> list[int]:
 
 
 def build_pmsr_search(args: argparse.Namespace) -> PMSRSearch:
+    if args.pmsr_fusion == "mllm":
+        mllm_kb = args.mllm_kb or os.environ.get("MLLM_KB", "")
+        mllm_metadata = args.mllm_metadata or os.environ.get("MLLM_METADATA", "")
+        mllm_embed_api_base = args.mllm_embed_api_base or os.environ.get("MLLM_EMBED_API_BASE", "")
+        mllm_model = args.mllm_model or os.environ.get("MLLM_EMBED_MODEL", "Qwen/Qwen3-VL-Embedding-2B")
+        missing = [
+            name
+            for name, value in {
+                "--mllm-kb": mllm_kb,
+                "--mllm-metadata": mllm_metadata,
+                "--mllm-embed-api-base": mllm_embed_api_base,
+                "--mllm-model": mllm_model,
+            }.items()
+            if not value
+        ]
+        if missing:
+            raise SystemExit(f"Missing PMSR MLLM retrieval options: {', '.join(missing)}")
+        return PMSRSearch(
+            PMSRSearchConfig(
+                mllm_kb=mllm_kb,
+                mllm_metadata=mllm_metadata,
+                mllm_embed_api_base=mllm_embed_api_base,
+                mllm_model=mllm_model,
+                fusion="mllm",
+                timeout=args.timeout,
+            )
+        )
+
     pmsr_kb = args.pmsr_kb or os.environ.get("PMSR_KB", "")
     pmsr_metadata = args.pmsr_metadata or os.environ.get("PMSR_METADATA", "")
     image_embed_api_base = args.image_embed_api_base or os.environ.get("IMAGE_EMBED_API_BASE", "")
@@ -203,7 +231,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pmsr_metadata")
     parser.add_argument("--image_embed_api_base")
     parser.add_argument("--qwen_text_embed_api_base")
-    parser.add_argument("--pmsr-fusion", choices=["concat", "image", "text"], default="concat")
+    parser.add_argument("--mllm-kb", dest="mllm_kb")
+    parser.add_argument("--mllm-metadata", dest="mllm_metadata")
+    parser.add_argument("--mllm-embed-api-base", dest="mllm_embed_api_base")
+    parser.add_argument("--mllm-model", dest="mllm_model")
+    parser.add_argument("--pmsr-fusion", choices=["concat", "image", "text", "mllm"], default="concat")
     parser.add_argument("--top-k", "--topk", dest="top_ks", action="append", help="Comma-separated or repeated K values.")
     parser.add_argument("--limit", "--max_samples", dest="limit", type=int)
     parser.add_argument("--timeout", type=int, default=120)

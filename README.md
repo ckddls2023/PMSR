@@ -87,6 +87,53 @@ python eval/main.py \
   --pmsr-fusion mllm
 ```
 
+## Open-Web Benchmarks
+
+For FVQA, MMSearch, LiveVQA, and the InfoSeek Human 2K subset, use Ollama web search for text retrieval instead of the local text FAISS KB. Cache Google Image Search results first, then pass the cached JSONL to evaluation.
+
+Set the web-search credentials in `.env` or export them in your shell:
+
+```bash
+OLLAMA_API_KEY=<your_ollama_api_key>
+SCRAPINGDOG_API_KEY=<your_scrapingdog_api_key>
+```
+
+Cache Google Image Search results into the PMSR `searched_results.google_image` schema:
+
+```bash
+python scripts/cache_google_image_search.py \
+  --jsonl data/fvqa_test.jsonl \
+  --output data/fvqa_test_pmsr_cache.jsonl \
+  --mode fetch \
+  --top-k 5
+```
+
+The cache script resumes by default when the output file already exists. Use `--limit 10` for a smoke test, or `--refresh` when you intentionally want to fetch results again for rows that already have cached image-search results.
+
+Run PMSR with Ollama web search:
+
+```bash
+python eval/main.py \
+  --data data/fvqa_test_pmsr_cache.jsonl \
+  --output-dir outputs/fvqa_test \
+  --model Qwen/Qwen3.5-9B \
+  --api-base http://<host>:8004/ \
+  --itercount 3 \
+  --topk 10 \
+  --web-search \
+  --pmsr-fusion mllm
+```
+
+Use the same cache-first pattern for the other open-web datasets:
+
+```bash
+python scripts/cache_google_image_search.py --jsonl data/MMSearch_end2end.jsonl --output data/MMSearch_end2end_pmsr_cache.jsonl --mode fetch --top-k 5
+python scripts/cache_google_image_search.py --jsonl data/LiveVQA_test.jsonl --output data/LiveVQA_test_pmsr_cache.jsonl --mode fetch --top-k 5
+python scripts/cache_google_image_search.py --jsonl data/InfoSeek_human_2k.jsonl --output data/InfoSeek_human_2k_pmsr_cache.jsonl --mode fetch --top-k 5
+```
+
+Then evaluate each cached file with `--web-search`. This flag overrides `TEXT_KB` from `.env`, so these runs use live web search for text evidence while still using the cached Google Image Search results and the configured PMSR or MLLM image-text retriever.
+
 ## Citation
 
 If you find PMSR useful for your research, please cite our paper:

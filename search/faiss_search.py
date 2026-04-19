@@ -44,6 +44,47 @@ class ListMetadataStore(MetadataStore):
         return self.rows[row_id]
 
 
+class CsvMetadataStore(MetadataStore):
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+        set_csv_field_size_limit()
+        self.handle = self.path.open("r", encoding="utf-8", newline="")
+        self.reader = csv.DictReader(self.handle)
+        self.rows: list[dict[str, Any]] = []
+        self._eof = False
+
+    def __del__(self) -> None:
+        try:
+            self.handle.close()
+        except Exception:
+            pass
+
+    def __len__(self) -> int:
+        self._ensure_row(None)
+        return len(self.rows)
+
+    def get(self, row_id: int) -> dict[str, Any]:
+        if row_id < 0:
+            return {}
+        self._ensure_row(row_id)
+        if row_id >= len(self.rows):
+            return {}
+        return self.rows[row_id]
+
+    def _ensure_row(self, row_id: int | None) -> None:
+        if self._eof:
+            return
+        if row_id is not None and row_id < len(self.rows):
+            return
+        while row_id is None or row_id >= len(self.rows):
+            try:
+                row = next(self.reader)
+            except StopIteration:
+                self._eof = True
+                break
+            self.rows.append(normalize_metadata_row(row))
+
+
 class JsonlMetadataStore(MetadataStore):
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -95,9 +136,7 @@ def load_metadata(path: str | Path) -> MetadataStore:
         if isinstance(payload, list):
             return ListMetadataStore([row for row in payload if isinstance(row, dict)])
         raise ValueError(f"JSON metadata must be a list of objects: {metadata_path}")
-    set_csv_field_size_limit()
-    with metadata_path.open("r", encoding="utf-8", newline="") as handle:
-        return ListMetadataStore(list(csv.DictReader(handle)))
+    return CsvMetadataStore(metadata_path)
 
 
 def set_csv_field_size_limit() -> None:

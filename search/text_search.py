@@ -11,6 +11,8 @@ from search.faiss_search import FaissKnowledgeBase, l2_normalize
 
 
 DEFAULT_TEXT_MODEL = "Qwen/Qwen3-Embedding-0.6B"
+E5_QUERY_CHAR_LIMIT = 512 - 1
+QWEN3_QUERY_CHAR_LIMIT = 32768 - 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +53,22 @@ class TextSearch(BaseSearch):
 
     def _format_query(self, query: str) -> str:
         if not self.config.query_prefix:
-            return query
+            return self._truncate_query(query)
         if query.startswith(self.config.query_prefix):
+            return self._truncate_query(query)
+        return self._truncate_query(f"{self.config.query_prefix}{query}")
+
+    def _truncate_query(self, query: str) -> str:
+        limit = query_char_limit(self.config.text_model)
+        if limit is None:
             return query
-        return f"{self.config.query_prefix}{query}"
+        return query[:limit]
+
+
+def query_char_limit(model: str) -> int | None:
+    normalized = model.lower()
+    if "e5-base-v2" in normalized:
+        return E5_QUERY_CHAR_LIMIT
+    if "qwen3-embedding-0.6b" in normalized:
+        return QWEN3_QUERY_CHAR_LIMIT
+    return None

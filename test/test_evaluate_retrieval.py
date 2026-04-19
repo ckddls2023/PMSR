@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,7 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agents.schemas import Evidence, SearchResult
-from eval.evaluate_retrieval import compute_recall, result_to_match_texts
+from eval.evaluate_retrieval import build_parser, build_pmsr_search, compute_recall, result_to_match_texts
 
 
 class FakeRetriever:
@@ -70,6 +71,37 @@ class EvaluateRetrievalTest(unittest.TestCase):
         self.assertEqual(scores["R@1"], 1.0)
         self.assertEqual(scores["R@2"], 1.0)
         self.assertEqual(scores["total"], 1)
+
+    def test_parser_accepts_mllm_fusion(self) -> None:
+        args = build_parser().parse_args(["--pmsr-fusion", "mllm"])
+
+        self.assertEqual(args.pmsr_fusion, "mllm")
+
+    def test_build_pmsr_search_uses_mllm_config_for_mllm_fusion(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "--pmsr-fusion",
+                "mllm",
+                "--mllm-kb",
+                "/tmp/mllm.index",
+                "--mllm-metadata",
+                "/tmp/mllm.csv",
+                "--mllm-embed-api-base",
+                "http://localhost:8013",
+                "--mllm-model",
+                "Qwen/Qwen3-VL-Embedding-2B",
+            ]
+        )
+
+        with patch("eval.evaluate_retrieval.PMSRSearch") as mock_search:
+            build_pmsr_search(args)
+
+        config = mock_search.call_args.args[0]
+        self.assertEqual(config.fusion, "mllm")
+        self.assertEqual(config.mllm_kb, "/tmp/mllm.index")
+        self.assertEqual(config.mllm_metadata, "/tmp/mllm.csv")
+        self.assertEqual(config.mllm_embed_api_base, "http://localhost:8013")
+        self.assertEqual(config.mllm_model, "Qwen/Qwen3-VL-Embedding-2B")
 
 
 if __name__ == "__main__":
