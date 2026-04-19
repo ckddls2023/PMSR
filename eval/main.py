@@ -109,6 +109,16 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
         or os.getenv("QWEN_TEXT_EMBED_API_BASE")
         or ""
     )
+    mllm_kb = getattr(args, "mllm_kb", None) or os.getenv("MLLM_KB") or ""
+    mllm_metadata = getattr(args, "mllm_metadata", None) or os.getenv("MLLM_METADATA") or ""
+    mllm_embed_api_base = (
+        getattr(args, "mllm_embed_api_base", None) or os.getenv("MLLM_EMBED_API_BASE") or ""
+    )
+    mllm_model = (
+        getattr(args, "mllm_model", None)
+        or os.getenv("MLLM_EMBED_MODEL")
+        or "Qwen/Qwen3-VL-Embedding-2B"
+    )
 
     return AgentConfig(
         model=model,
@@ -127,6 +137,10 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
         image_embed_api_base=image_embed_api_base,
         pmsr_text_embed_api_base=pmsr_text_embed_api_base,
         pmsr_fusion=args.pmsr_fusion,
+        mllm_kb=mllm_kb,
+        mllm_metadata=mllm_metadata,
+        mllm_embed_api_base=mllm_embed_api_base,
+        mllm_model=mllm_model,
         return_images=args.return_images,
         max_iter=args.itercount,
         topk=args.topk,
@@ -296,6 +310,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pmsr-text-embed-api-base", dest="pmsr_text_embed_api_base", default=None)
     parser.add_argument("--pmsr-fusion", dest="pmsr_fusion", default="concat",
                         choices=["text", "concat", "image", "mllm"])
+    parser.add_argument("--mllm-kb", dest="mllm_kb", default=None)
+    parser.add_argument("--mllm-metadata", dest="mllm_metadata", default=None)
+    parser.add_argument("--mllm-embed-api-base", dest="mllm_embed_api_base", default=None)
+    parser.add_argument("--mllm-model", dest="mllm_model", default=None)
 
     # Retrieval / iteration
     parser.add_argument("--itercount", type=int, default=3)

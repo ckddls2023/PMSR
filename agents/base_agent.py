@@ -34,6 +34,10 @@ class AgentConfig:
     pmsr_fusion: str = "concat"
     image_model: str = "google/siglip2-giant-opt-patch16-384"
     pmsr_text_model: str = "Qwen/Qwen3-Embedding-0.6B"
+    mllm_kb: str = ""
+    mllm_metadata: str = ""
+    mllm_embed_api_base: str = ""
+    mllm_model: str = "Qwen/Qwen3-VL-Embedding-2B"
 
     # Whether to include image content in VLM passages from pmsr/cached results
     # True  → to_image_pair()  (VLM loads actual images)

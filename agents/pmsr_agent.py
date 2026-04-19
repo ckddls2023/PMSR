@@ -366,11 +366,23 @@ class PMSRAgent(BaseAgent):
 
     def _build_image_retriever(self):  # type: ignore[return]
         cfg = self.config
+        from search.pmsr_search import PMSRSearch, PMSRSearchConfig
+        if cfg.pmsr_fusion == "mllm":
+            if not cfg.mllm_kb or not cfg.mllm_metadata or not cfg.mllm_embed_api_base:
+                return None
+            return PMSRSearch(PMSRSearchConfig(
+                mllm_kb=cfg.mllm_kb,
+                mllm_metadata=cfg.mllm_metadata,
+                mllm_embed_api_base=cfg.mllm_embed_api_base,
+                mllm_model=cfg.mllm_model,
+                fusion="mllm",
+                api_key=cfg.api_key,
+            ))
+
         if not cfg.pmsr_kb or not cfg.pmsr_metadata:
             return None
         if not cfg.image_embed_api_base or not cfg.pmsr_text_embed_api_base:
             return None
-        from search.pmsr_search import PMSRSearch, PMSRSearchConfig
         return PMSRSearch(PMSRSearchConfig(
             pmsr_kb=cfg.pmsr_kb,
             pmsr_metadata=cfg.pmsr_metadata,

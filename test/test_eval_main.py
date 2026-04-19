@@ -36,6 +36,10 @@ class EvalMainTest(unittest.TestCase):
             text_embed_api_base="",
             pmsr_kb="",
             pmsr_metadata="",
+            mllm_kb="",
+            mllm_metadata="",
+            mllm_embed_api_base="",
+            mllm_model="",
             image_embed_api_base="",
             pmsr_text_embed_api_base="",
             pmsr_fusion="concat",
@@ -66,6 +70,10 @@ class EvalMainTest(unittest.TestCase):
             text_embed_api_base="http://text",
             pmsr_kb="/tmp/pmsr.index",
             pmsr_metadata="/tmp/pmsr.csv",
+            mllm_kb="",
+            mllm_metadata="",
+            mllm_embed_api_base="",
+            mllm_model="",
             image_embed_api_base="http://image",
             pmsr_text_embed_api_base="http://qwen",
             pmsr_fusion="concat",
@@ -96,6 +104,10 @@ class EvalMainTest(unittest.TestCase):
             text_embed_api_base="",
             pmsr_kb="",
             pmsr_metadata="",
+            mllm_kb="",
+            mllm_metadata="",
+            mllm_embed_api_base="",
+            mllm_model="",
             image_embed_api_base="",
             pmsr_text_embed_api_base="",
             pmsr_fusion="concat",
@@ -109,6 +121,42 @@ class EvalMainTest(unittest.TestCase):
         config = build_config_from_args(args)
 
         self.assertFalse(config.return_images)
+
+    def test_build_config_reads_mllm_retrieval_args(self) -> None:
+        args = argparse.Namespace(
+            model="Qwen/Qwen3.5-9B",
+            api_base="",
+            api_key="",
+            max_tokens=128,
+            temperature=0.0,
+            timeout=10,
+            retry=0,
+            text_kb="",
+            text_metadata="",
+            text_embed_api_base="",
+            text_model="",
+            pmsr_kb="/tmp/pmsr.index",
+            pmsr_metadata="/tmp/pmsr.csv",
+            mllm_kb="/tmp/mllm.index",
+            mllm_metadata="/tmp/mllm.csv",
+            mllm_embed_api_base="http://mllm",
+            mllm_model="Qwen/Qwen3-VL-Embedding-2B",
+            image_embed_api_base="",
+            pmsr_text_embed_api_base="",
+            pmsr_fusion="mllm",
+            return_images=True,
+            itercount=1,
+            topk=2,
+            threshold=0.9,
+            verbose=False,
+        )
+
+        config = build_config_from_args(args)
+
+        self.assertEqual(config.mllm_kb, "/tmp/mllm.index")
+        self.assertEqual(config.mllm_metadata, "/tmp/mllm.csv")
+        self.assertEqual(config.mllm_embed_api_base, "http://mllm")
+        self.assertEqual(config.mllm_model, "Qwen/Qwen3-VL-Embedding-2B")
 
     def test_parser_defaults_return_images_to_true(self) -> None:
         from eval.main import build_parser
