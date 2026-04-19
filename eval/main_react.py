@@ -85,7 +85,7 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
     )
     api_key = getattr(args, "api_key", None) or os.getenv("OPENAI_API_KEY") or ""
 
-    text_kb = "https://ollama.com/api/web_search"
+    text_kb = ""
     text_metadata = ""
     text_embed_api_base = ""
     text_model = (
@@ -140,6 +140,8 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
         mllm_metadata=mllm_metadata,
         mllm_embed_api_base=mllm_embed_api_base,
         mllm_model=mllm_model,
+        web_search=args.web_search,
+        google_lens_search=args.google_lens_search,
         return_images=args.return_images,
         max_iter=10,
         topk=args.topk,
@@ -167,11 +169,10 @@ def build_output_path(args: argparse.Namespace, config: AgentConfig) -> Path:
     stem = f"{stem}_{model_stem}" if stem else model_stem
     stem += f"_react_topk{config.topk}"
 
-    if config.text_kb:
-        if config.text_kb.startswith(("http://", "https://")):
-            stem += "_web"
-        else:
-            stem += "_text"
+    if config.web_search:
+        stem += "_web"
+    if config.google_lens_search:
+        stem += "_google_lens"
     if config.pmsr_fusion == "mllm" and config.mllm_kb:
         stem += "_mllm"
     elif config.pmsr_kb:
@@ -315,6 +316,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mllm-metadata", dest="mllm_metadata", default=None)
     parser.add_argument("--mllm-embed-api-base", dest="mllm_embed_api_base", default=None)
     parser.add_argument("--mllm-model", dest="mllm_model", default=None)
+    parser.add_argument("--web-search", action="store_true",
+                        help="Use web search as the text backend inside the single pmsr_search tool.")
+    parser.add_argument("--google-lens-search", action="store_true",
+                        help="Use Google Lens as the image backend inside the single pmsr_search tool.")
 
     # ReACT retrieval
     parser.add_argument("--topk", type=int, default=10)

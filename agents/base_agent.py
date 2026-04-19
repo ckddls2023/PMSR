@@ -46,6 +46,10 @@ class AgentConfig:
     similarity_model: str = "Qwen/Qwen3-Embedding-0.6B"
     similarity_embed_mode: str = "text"
 
+    # Optional backends behind the single ReACT pmsr_search tool.
+    web_search: bool = False
+    google_lens_search: bool = False
+
     # Whether to include image content in VLM passages from pmsr/cached results
     # True  → to_image_pair()  (VLM loads actual images)
     # False → to_text_passage() (captions/titles only)

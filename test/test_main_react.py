@@ -13,7 +13,7 @@ from eval.main_react import build_config_from_args, build_output_path, build_par
 
 
 class MainReactTest(unittest.TestCase):
-    def test_react_config_uses_web_search_for_text_tool(self) -> None:
+    def test_react_config_does_not_enable_text_retrieval(self) -> None:
         args = build_parser().parse_args(
             [
                 "--text-kb",
@@ -25,9 +25,20 @@ class MainReactTest(unittest.TestCase):
 
         config = build_config_from_args(args)
 
-        self.assertEqual(config.text_kb, "https://ollama.com/api/web_search")
+        self.assertEqual(config.text_kb, "")
         self.assertEqual(config.text_metadata, "")
         self.assertEqual(config.text_embed_api_base, "")
+
+    def test_react_config_sets_optional_backends_for_single_pmsr_tool(self) -> None:
+        args = build_parser().parse_args(["--web-search", "--google-lens-search"])
+
+        config = build_config_from_args(args)
+        output_path = build_output_path(args, config)
+
+        self.assertTrue(config.web_search)
+        self.assertTrue(config.google_lens_search)
+        self.assertIn("_web", output_path.name)
+        self.assertIn("_google_lens", output_path.name)
 
     def test_react_config_supports_mllm_pmsr_search(self) -> None:
         args = build_parser().parse_args(
@@ -55,7 +66,7 @@ class MainReactTest(unittest.TestCase):
         self.assertEqual(config.mllm_kb, "/tmp/mllm.index")
         self.assertEqual(config.mllm_metadata, "/tmp/mllm.csv")
         self.assertEqual(config.mllm_embed_api_base, "http://mllm")
-        self.assertEqual(output_path.name, "InfoSeek_val_Qwen3.5-9B_react_topk10_web_mllm.jsonl")
+        self.assertEqual(output_path.name, "InfoSeek_val_Qwen3.5-9B_react_topk10_mllm.jsonl")
 
 
 if __name__ == "__main__":
