@@ -32,6 +32,10 @@ class FakeEmbeddingClient:
         self.calls.append(list(texts))
         return self.vectors[: len(texts)]
 
+    def embed_mllm(self, *, image_path: str, text: str, instruction: str) -> list[float]:
+        self.calls.append([image_path, text, instruction])
+        return self.vectors[len(self.calls) - 1]
+
 
 class CreateKnowledgeBaseTest(unittest.TestCase):
     def test_parse_embeddings_reads_openai_batch_response(self) -> None:
@@ -78,6 +82,44 @@ class CreateKnowledgeBaseTest(unittest.TestCase):
         self.assertEqual(inputs[1]["content"][0]["image_url"]["url"], "https://example.com/b.jpg")
         self.assertEqual(mock_post.call_args.kwargs["json"]["embedding_types"], ["float"])
 
+    def test_embedding_client_sends_mllm_image_payload_with_text_for_documents(self) -> None:
+        response = SimpleNamespace()
+        response.raise_for_status = lambda: None
+        response.json = lambda: {"data": [{"index": 0, "embedding": [1.0, 2.0]}]}
+        client = EmbeddingClient(api_base="http://localhost:8013", model="Qwen/Qwen3-VL-Embedding-2B")
+
+        with patch("search.embedding_client.requests.post", return_value=response) as mock_post:
+            vector = client.embed_mllm(
+                image_path="https://example.com/wiki.jpg",
+                text="Wikipedia summary caption.",
+                instruction="Represent the given Wikipedia image with related text information: ",
+            )
+
+        self.assertEqual(vector, [1.0, 2.0])
+        self.assertEqual(mock_post.call_args.args[0], "http://localhost:8013/v1/embeddings")
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"]["messages"],
+            [
+                {
+                    "role": "system",
+                    "content": [
+                        {"type": "text", "text": "Represent the given Wikipedia image with related text information: "},
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": "https://example.com/wiki.jpg"}},
+                        {"type": "text", "text": "Wikipedia summary caption."},
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": ""}],
+                },
+            ],
+        )
+
     def test_encode_records_batches_image_and_text_embeddings_for_concat_index(self) -> None:
         records = [
             {"image_path": "https://example.com/image-a.jpg", "wikipedia_summary": "caption a", "wikipedia_content": "content a", "url": "drop"},
@@ -102,6 +144,45 @@ class CreateKnowledgeBaseTest(unittest.TestCase):
         self.assertEqual(vectors.shape, (2, 4))
         self.assertEqual(metadata[0], {"image_path": "https://example.com/image-a.jpg", "caption": "caption a"})
         self.assertEqual(metadata[1], {"image_path": "https://example.com/image-b.jpg", "caption": "caption b"})
+
+    def test_encode_records_uses_mllm_joint_embeddings_for_mllm_index(self) -> None:
+        records = [
+            {"image_path": "https://example.com/image-a.jpg", "wikipedia_summary": "caption a"},
+            {"image_path": "https://example.com/image-b.jpg", "wikipedia_summary": "caption b"},
+        ]
+        mllm_client = FakeEmbeddingClient([[1.0, 0.0], [0.0, 2.0]])
+
+        vectors, metadata = encode_records(
+            records,
+            image_client=None,
+            text_client=None,
+            mllm_client=mllm_client,
+            batch_size=2,
+            image_field="image_path",
+            text_field="wikipedia_summary",
+            caption_field="wikipedia_summary",
+            fusion="mllm",
+            mllm_instruction="Represent the given Wikipedia image with related text information: ",
+        )
+
+        self.assertEqual(
+            mllm_client.calls,
+            [
+                [
+                    "https://example.com/image-a.jpg",
+                    "caption a",
+                    "Represent the given Wikipedia image with related text information: ",
+                ],
+                [
+                    "https://example.com/image-b.jpg",
+                    "caption b",
+                    "Represent the given Wikipedia image with related text information: ",
+                ],
+            ],
+        )
+        self.assertEqual(vectors.shape, (2, 2))
+        self.assertEqual(vectors[1].tolist(), [0.0, 1.0])
+        self.assertEqual(metadata[0], {"image_path": "https://example.com/image-a.jpg", "caption": "caption a"})
 
     def test_build_metadata_row_keeps_only_image_path_and_caption_for_image_rows(self) -> None:
         row = build_metadata_row(

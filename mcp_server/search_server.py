@@ -28,13 +28,15 @@ TEXT_SEARCH_DESCRIPTION = (
 )
 IMAGE_SEARCH_DESCRIPTION = (
     "Retrieve image-text pairs from the multimodal Wikipedia knowledge base for an input image "
-    "and query. PMSR multimodal retrieval combines visual similarity from image embeddings with "
-    "query-conditioned text similarity over image-text pairs."
+    "and query. If MLLM_KB and MLLM_EMBED_API_BASE are configured, PMSR uses a joint MLLM "
+    "image-text embedding to retrieve images; otherwise it falls back to concat fusion with "
+    "separate image and text embeddings."
 )
 PMSR_MULTIMODAL_SEARCH_DESCRIPTION = (
-    "Run PMSR joint retrieval over heterogeneous KBs: text passages from the textual KB and "
-    "image-text pairs from the multimodal KB. This mirrors PMSR's joint search stage for gathering "
-    "diverse evidence before reasoning."
+    "Run PMSR dual-scope retrieval over heterogeneous KBs. The caller should provide a "
+    "record_level_query generated from the latest reasoning record and a trajectory_level_query "
+    "generated from the full reasoning trajectory; PMSR searches both scopes over text passages "
+    "and multimodal image-text pairs, then merges the evidence."
 )
 
 
@@ -97,6 +99,10 @@ def _image_model() -> str:
     return os.environ.get("IMAGE_EMBED_MODEL") or DEFAULT_IMAGE_MODEL
 
 
+def _mllm_model() -> str:
+    return os.environ.get("MLLM_EMBED_MODEL") or "Qwen/Qwen3-VL-Embedding-2B"
+
+
 def _api_key() -> str:
     return os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY") or ""
 
@@ -121,6 +127,20 @@ def get_text_searcher():
 @lru_cache(maxsize=1)
 def get_image_searcher():
     from search.pmsr_search import PMSRSearch, PMSRSearchConfig
+
+    if os.environ.get("MLLM_KB") and os.environ.get("MLLM_EMBED_API_BASE"):
+        env = _required_env(["MLLM_KB", "MLLM_METADATA", "MLLM_EMBED_API_BASE"])
+        return PMSRSearch(
+            PMSRSearchConfig(
+                mllm_kb=env["MLLM_KB"],
+                mllm_metadata=env["MLLM_METADATA"],
+                mllm_embed_api_base=env["MLLM_EMBED_API_BASE"],
+                mllm_model=_mllm_model(),
+                fusion="mllm",
+                timeout=int(os.environ.get("MCP_SEARCH_TIMEOUT", "120")),
+                api_key=_api_key(),
+            )
+        )
 
     env = _required_env(["PMSR_KB", "PMSR_METADATA", "IMAGE_EMBED_API_BASE", "QWEN_TEXT_EMBED_API_BASE"])
     return PMSRSearch(
@@ -175,6 +195,22 @@ def _run_image_search(image: str, query: str, top_k: int) -> list[dict[str, Any]
     return [format_result(result) for result in results]
 
 
+def _merge_formatted_results(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for group in groups:
+        for result in group:
+            key = "|".join(
+                str(result.get(field) or "")
+                for field in ("source", "title", "text", "image_path", "caption", "url")
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(result)
+    return merged
+
+
 @mcp.tool(description=TEXT_SEARCH_DESCRIPTION)
 def text_search(query: str, top_k: int = 5) -> list[dict[str, Any]]:
     """Retrieve text passages from PMSR's textual Wikipedia KB using dense text-text similarity."""
@@ -194,12 +230,24 @@ def image_search(image: str, query: str, top_k: int = 5) -> list[dict[str, Any]]
 
 
 @mcp.tool(description=PMSR_MULTIMODAL_SEARCH_DESCRIPTION)
-def pmsr_multimodal_search(image: str, query: str, top_k: int = 5) -> dict[str, list[dict[str, Any]]]:
-    """Retrieve both textual passages and multimodal image-text pairs for PMSR-style evidence gathering."""
+def pmsr_multimodal_search(
+    image: str,
+    record_level_query: str,
+    trajectory_level_query: str,
+    top_k: int = 5,
+) -> dict[str, list[dict[str, Any]]]:
+    """Retrieve text and image evidence with PMSR record-level and trajectory-level queries."""
     try:
+        k = clamp_top_k(top_k)
         return {
-            "text_results": _run_text_search(query, top_k),
-            "image_results": _run_image_search(image, query, top_k),
+            "text_results": _merge_formatted_results(
+                _run_text_search(record_level_query, k),
+                _run_text_search(trajectory_level_query, k),
+            ),
+            "image_results": _merge_formatted_results(
+                _run_image_search(image, record_level_query, k),
+                _run_image_search(image, trajectory_level_query, k),
+            ),
         }
     except Exception as exc:
         raise RuntimeError(redact_secrets(exc)) from exc

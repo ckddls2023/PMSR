@@ -72,7 +72,54 @@ python scripts/create_knowledge_base.py \
   --batch-size 32
 ```
 
-The metadata CSV stores `image_path`, `caption`, and `text` fields. For Wikipedia, we use `wikipedia_summary` for both the text embedding input and the saved caption so retrieved image-text pairs can be passed directly to the PMSR agent.
+The metadata CSV stores `image_path` and `caption` fields. For Wikipedia, we use `wikipedia_summary` for both the text embedding input and the saved caption so retrieved image-text pairs can be passed directly to the PMSR agent.
+
+### MLLM Image-Text KB
+
+As an alternative to concat fusion, PMSR can build an MLLM-fused multimodal KB with `Qwen/Qwen3-VL-Embedding-2B`. In this mode, each Wikipedia image is encoded jointly with its `wikipedia_summary` through the `/v1/embeddings` message API:
+
+```text
+system: Represent the given Wikipedia image with related text information:
+user: image_url + wikipedia_summary
+assistant: empty text
+```
+
+Start the MLLM embedding server:
+
+```bash
+MODEL=Qwen/Qwen3-VL-Embedding-2B PORT=8013 scripts/run_mllm_embed_server.sh
+```
+
+Set the MLLM paths and API endpoint in `.env`:
+
+```bash
+MLLM_EMBED_API_BASE=http://<host>:8013
+MLLM_EMBED_MODEL=Qwen/Qwen3-VL-Embedding-2B
+MLLM_KB=outputs/indexes/wikipedia_mllm.index
+MLLM_METADATA=outputs/indexes/wikipedia_mllm_metadata.csv
+```
+
+Build the MLLM FAISS index:
+
+```bash
+set -a
+source .env
+set +a
+
+python scripts/create_knowledge_base.py \
+  --input-jsonl Wiki6M_ver_1_0_updated.jsonl \
+  --index-output outputs/indexes/wikipedia_mllm.index \
+  --metadata-output outputs/indexes/wikipedia_mllm_metadata.csv \
+  --image-field image_path \
+  --text-field wikipedia_summary \
+  --caption-field wikipedia_summary \
+  --fusion mllm \
+  --mllm-embed-api-base "${MLLM_EMBED_API_BASE}" \
+  --mllm-model "${MLLM_EMBED_MODEL}" \
+  --batch-size 32
+```
+
+At query time, `search/pmsr_search.py` uses MLLM fusion when `fusion="mllm"`. The MCP server also prefers MLLM retrieval when `MLLM_KB`, `MLLM_METADATA`, and `MLLM_EMBED_API_BASE` are configured; otherwise it falls back to concat fusion with `PMSR_KB`, `IMAGE_EMBED_API_BASE`, and `QWEN_TEXT_EMBED_API_BASE`.
 
 ## Text KB
 

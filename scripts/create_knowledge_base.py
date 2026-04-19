@@ -18,9 +18,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from search.embedding_client import EmbeddingClient
+from search.pmsr_search import DEFAULT_MLLM_PASSAGE_INSTRUCTION
 
 
-FusionMode = Literal["concat", "image", "text"]
+FusionMode = Literal["concat", "image", "text", "mllm"]
 
 
 class BatchEmbeddingClient(Protocol):
@@ -28,6 +29,9 @@ class BatchEmbeddingClient(Protocol):
         ...
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        ...
+
+    def embed_mllm(self, *, image_path: str, text: str, instruction: str) -> list[float]:
         ...
 
 
@@ -122,11 +126,15 @@ def encode_records(
     text_field: str,
     caption_field: str,
     fusion: FusionMode = "concat",
+    mllm_client: BatchEmbeddingClient | None = None,
+    mllm_instruction: str = DEFAULT_MLLM_PASSAGE_INSTRUCTION,
 ) -> tuple[np.ndarray, list[dict[str, Any]]]:
     if fusion in {"concat", "image"} and image_client is None:
         raise ValueError(f"fusion={fusion!r} requires an image embedding client.")
     if fusion in {"concat", "text"} and text_client is None:
         raise ValueError(f"fusion={fusion!r} requires a text embedding client.")
+    if fusion == "mllm" and mllm_client is None:
+        raise ValueError("fusion='mllm' requires an MLLM embedding client.")
 
     all_vectors: list[np.ndarray] = []
     all_metadata: list[dict[str, Any]] = []
@@ -135,9 +143,9 @@ def encode_records(
         for record in batch:
             image_value = str(record.get(image_field) or "")
             text_value = str(record.get(text_field) or "")
-            if fusion in {"concat", "image"} and (not image_value or not _valid_image_value(image_value)):
+            if fusion in {"concat", "image", "mllm"} and (not image_value or not _valid_image_value(image_value)):
                 continue
-            if fusion in {"concat", "text"} and not text_value:
+            if fusion in {"concat", "text", "mllm"} and not text_value:
                 continue
             valid_batch.append(record)
         if not valid_batch:
@@ -150,7 +158,19 @@ def encode_records(
         if fusion in {"concat", "text"}:
             text_vectors = text_client.embed_texts([str(record.get(text_field) or "") for record in valid_batch])  # type: ignore[union-attr]
 
-        vectors = _fuse_embeddings(image_vectors, text_vectors, fusion=fusion)
+        if fusion == "mllm":
+            vectors = l2_normalize_matrix(
+                [
+                    mllm_client.embed_mllm(  # type: ignore[union-attr]
+                        image_path=str(record.get(image_field) or ""),
+                        text=str(record.get(text_field) or ""),
+                        instruction=mllm_instruction,
+                    )
+                    for record in valid_batch
+                ]
+            )
+        else:
+            vectors = _fuse_embeddings(image_vectors, text_vectors, fusion=fusion)
         all_vectors.append(vectors)
         all_metadata.extend(
             build_metadata_row(
@@ -207,10 +227,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--image-model", default=os.environ.get("IMAGE_EMBED_MODEL", "google/siglip2-giant-opt-patch16-384"))
     parser.add_argument("--text-model", default=os.environ.get("QWEN_TEXT_EMBED_MODEL", "Qwen/Qwen3-Embedding-0.6B"))
+    parser.add_argument("--mllm-embed-api-base", default=os.environ.get("MLLM_EMBED_API_BASE", ""))
+    parser.add_argument("--mllm-model", default=os.environ.get("MLLM_EMBED_MODEL", "Qwen/Qwen3-VL-Embedding-2B"))
+    parser.add_argument("--mllm-instruction", default=os.environ.get("MLLM_PASSAGE_INSTRUCTION", DEFAULT_MLLM_PASSAGE_INSTRUCTION))
     parser.add_argument("--image-field", default="image_path")
     parser.add_argument("--text-field", default="wikipedia_summary")
     parser.add_argument("--caption-field", default="wikipedia_summary")
-    parser.add_argument("--fusion", choices=["concat", "image", "text"], default="concat")
+    parser.add_argument("--fusion", choices=["concat", "image", "text", "mllm"], default="concat")
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--timeout", type=int, default=120)
@@ -222,6 +245,7 @@ def main() -> int:
     args = build_parser().parse_args()
     image_client = None
     text_client = None
+    mllm_client = None
     if args.fusion in {"concat", "image"}:
         if not args.image_embed_api_base:
             raise SystemExit("--image-embed-api-base is required for image or concat fusion.")
@@ -240,17 +264,28 @@ def main() -> int:
             timeout=args.timeout,
             api_key=args.api_key,
         )
+    if args.fusion == "mllm":
+        if not args.mllm_embed_api_base:
+            raise SystemExit("--mllm-embed-api-base is required for mllm fusion.")
+        mllm_client = EmbeddingClient(
+            api_base=args.mllm_embed_api_base,
+            model=args.mllm_model,
+            timeout=args.timeout,
+            api_key=args.api_key,
+        )
 
     records = load_jsonl(args.input_jsonl, limit=args.limit)
     vectors, metadata = encode_records(
         records,
         image_client=image_client,
         text_client=text_client,
+        mllm_client=mllm_client,
         batch_size=args.batch_size,
         image_field=args.image_field,
         text_field=args.text_field,
         caption_field=args.caption_field,
         fusion=args.fusion,
+        mllm_instruction=args.mllm_instruction,
     )
     write_faiss_index(args.index_output, vectors)
     write_metadata_csv(args.metadata_output, metadata)

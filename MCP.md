@@ -23,6 +23,8 @@ TEXT_MODEL=Qwen/Qwen3-Embedding-0.6B
 
 Retrieve image-text pairs from the multimodal Wikipedia KB for an input image and query. `image` can be a local path, an HTTP(S) URL, or a data URL.
 
+If `MLLM_KB`, `MLLM_METADATA`, and `MLLM_EMBED_API_BASE` are set, PMSR uses MLLM fusion and encodes the image and query jointly. Otherwise it uses concat fusion with separate image and text embedding APIs.
+
 Required `.env`:
 
 ```bash
@@ -30,11 +32,22 @@ PMSR_KB=/path/to/pmsr.index
 PMSR_METADATA=/path/to/pmsr_metadata.csv
 IMAGE_EMBED_API_BASE=http://<host>:<port>
 QWEN_TEXT_EMBED_API_BASE=http://<host>:<port>
+
+# Optional MLLM fusion override
+MLLM_KB=/path/to/mllm.index
+MLLM_METADATA=/path/to/mllm_metadata.csv
+MLLM_EMBED_API_BASE=http://<host>:<port>
+MLLM_EMBED_MODEL=Qwen/Qwen3-VL-Embedding-2B
 ```
 
-### `pmsr_multimodal_search(image, query, top_k=5)`
+### `pmsr_multimodal_search(image, record_level_query, trajectory_level_query, top_k=5)`
 
-Run both PMSR retrieval scopes for external evidence gathering:
+Run PMSR dual-scope retrieval for external evidence gathering. A calling sub-agent should generate:
+
+- `record_level_query`: a local query from the latest compact reasoning record.
+- `trajectory_level_query`: a global query from the full reasoning trajectory.
+
+The MCP tool searches both query scopes over text and multimodal KBs, then merges duplicates:
 
 - `text_results`: text passages from the textual KB.
 - `image_results`: image-text pairs from the multimodal KB.

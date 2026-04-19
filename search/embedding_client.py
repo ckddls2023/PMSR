@@ -162,3 +162,27 @@ class EmbeddingClient:
                 "add_special_tokens": True,
             }
         )
+
+    def embed_mllm_text(self, *, text: str, instruction: str) -> list[float]:
+        return self._post(
+            {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": [{"type": "text", "text": instruction}],
+                    },
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": text}],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": ""}],
+                    },
+                ],
+                "encoding_format": "float",
+                "continue_final_message": True,
+                "add_special_tokens": True,
+            }
+        )

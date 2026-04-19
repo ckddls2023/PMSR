@@ -96,8 +96,10 @@ class MCPSearchServerTest(unittest.TestCase):
     def test_multimodal_search_returns_text_and_image_results(self) -> None:
         from mcp_server import search_server
 
+        text_calls = []
+        image_calls = []
         fake_text = SimpleNamespace(
-            search=lambda query, top_k: [
+            search=lambda query, top_k: text_calls.append((query, top_k)) or [
                 SimpleNamespace(
                     to_dict=lambda: {
                         "rank": 1,
@@ -113,7 +115,7 @@ class MCPSearchServerTest(unittest.TestCase):
             ]
         )
         fake_image = SimpleNamespace(
-            search=lambda query, top_k: [
+            search=lambda query, top_k: image_calls.append((query, top_k)) or [
                 SimpleNamespace(
                     to_dict=lambda: {
                         "rank": 1,
@@ -132,10 +134,46 @@ class MCPSearchServerTest(unittest.TestCase):
         with patch.object(search_server, "get_text_searcher", return_value=fake_text), patch.object(
             search_server, "get_image_searcher", return_value=fake_image
         ):
-            results = search_server.pmsr_multimodal_search("/tmp/query.jpg", "What is this?", top_k=5)
+            results = search_server.pmsr_multimodal_search(
+                "/tmp/query.jpg",
+                record_level_query="latest visual clue",
+                trajectory_level_query="global evidence need",
+                top_k=5,
+            )
 
+        self.assertEqual(text_calls, [("latest visual clue", 5), ("global evidence need", 5)])
+        self.assertEqual(
+            image_calls,
+            [
+                ({"image_path": "/tmp/query.jpg", "text": "latest visual clue"}, 5),
+                ({"image_path": "/tmp/query.jpg", "text": "global evidence need"}, 5),
+            ],
+        )
         self.assertEqual(results["text_results"][0]["title"], "Text title")
         self.assertEqual(results["image_results"][0]["caption"], "Caption.")
+
+    def test_get_image_searcher_prefers_mllm_when_configured(self) -> None:
+        from mcp_server import search_server
+
+        with patch.dict(
+            os.environ,
+            {
+                "MLLM_KB": "/tmp/mllm.index",
+                "MLLM_METADATA": "/tmp/mllm.csv",
+                "MLLM_EMBED_API_BASE": "http://localhost:8013",
+                "MLLM_EMBED_MODEL": "Qwen/Qwen3-VL-Embedding-2B",
+            },
+            clear=False,
+        ), patch("search.pmsr_search.PMSRSearch") as mock_search, patch(
+            "search.pmsr_search.FaissKnowledgeBase"
+        ):
+            search_server.get_image_searcher.cache_clear()
+            search_server.get_image_searcher()
+
+        config = mock_search.call_args.args[0]
+        self.assertEqual(config.fusion, "mllm")
+        self.assertEqual(config.mllm_kb, "/tmp/mllm.index")
+        self.assertEqual(config.mllm_embed_api_base, "http://localhost:8013")
 
     def test_load_env_file_keeps_existing_environment_by_default(self) -> None:
         from mcp_server import search_server

@@ -14,6 +14,8 @@ DEFAULT_IMAGE_MODEL = "google/siglip2-giant-opt-patch16-384"
 DEFAULT_TEXT_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 DEFAULT_MLLM_MODEL = "Qwen/Qwen3-VL-Embedding-2B"
 DEFAULT_QUERY_INSTRUCTION = "Given a web search query, retrieve relevant passages that answer the query"
+DEFAULT_MLLM_QUERY_INSTRUCTION = "Find a Wikipedia image that answers this question: "
+DEFAULT_MLLM_PASSAGE_INSTRUCTION = "Represent the given Wikipedia image with related text information: "
 FusionMode = Literal["concat", "image", "text", "mllm"]
 
 
@@ -68,11 +70,14 @@ class PMSRSearch(BaseSearch):
         if self.config.fusion == "mllm":
             if not image_path:
                 raise ValueError("PMSR MLLM search requires image_path.")
+            instruction = self.config.instruction
+            if instruction == DEFAULT_QUERY_INSTRUCTION:
+                instruction = DEFAULT_MLLM_QUERY_INSTRUCTION
             return l2_normalize(
                 self._require_client("mllm").embed_mllm(
                     image_path=image_path,
                     text=text,
-                    instruction=self.config.instruction,
+                    instruction=instruction,
                 )
             )
         if not image_path:

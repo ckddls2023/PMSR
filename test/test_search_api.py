@@ -18,8 +18,15 @@ if str(ROOT) not in sys.path:
 from api import build_pmsr_user_message
 from search.google_image_search import GoogleImageSearch
 from search.google_search import GoogleSearch
+from search.embedding_client import EmbeddingClient
 from search.faiss_search import FaissKnowledgeBase, load_metadata
-from search.pmsr_search import PMSRSearch, PMSRSearchConfig, get_detailed_instruct
+from search.pmsr_search import (
+    DEFAULT_MLLM_PASSAGE_INSTRUCTION,
+    DEFAULT_MLLM_QUERY_INSTRUCTION,
+    PMSRSearch,
+    PMSRSearchConfig,
+    get_detailed_instruct,
+)
 from search.text_search import TextSearch, TextSearchConfig
 
 
@@ -71,6 +78,67 @@ class SearchApiUnitTest(unittest.TestCase):
                 "Instruct: Given a web search query, retrieve relevant passages that answer the query\n"
                 "Query:Explain gravity"
             ],
+        )
+
+    def test_pmsr_mllm_uses_query_instruction_for_joint_embedding(self) -> None:
+        searcher = object.__new__(PMSRSearch)
+        searcher.config = PMSRSearchConfig(fusion="mllm", instruction=DEFAULT_MLLM_QUERY_INSTRUCTION)
+        searcher.image_client = None
+        searcher.text_client = None
+        calls: list[dict[str, str]] = []
+        searcher.mllm_client = SimpleNamespace(
+            embed_mllm=lambda **kwargs: calls.append(kwargs) or [1.0, 0.0]
+        )
+
+        searcher._encode(image_path="https://example.com/query.jpg", text="What animal is shown?")
+
+        self.assertEqual(
+            calls,
+            [
+                {
+                    "image_path": "https://example.com/query.jpg",
+                    "text": "What animal is shown?",
+                    "instruction": "Find a Wikipedia image that answers this question: ",
+                }
+            ],
+        )
+
+    def test_embedding_client_sends_mllm_text_embedding_payload(self) -> None:
+        response = SimpleNamespace()
+        response.raise_for_status = lambda: None
+        response.json = lambda: {"data": [{"index": 0, "embedding": [1.0, 2.0]}]}
+        client = EmbeddingClient(api_base="http://localhost:8013", model="Qwen/Qwen3-VL-Embedding-2B")
+
+        with patch("search.embedding_client.requests.post", return_value=response) as mock_post:
+            vector = client.embed_mllm_text(
+                text="What animal is shown?",
+                instruction=DEFAULT_MLLM_QUERY_INSTRUCTION,
+            )
+
+        self.assertEqual(vector, [1.0, 2.0])
+        self.assertEqual(mock_post.call_args.args[0], "http://localhost:8013/v1/embeddings")
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"],
+            {
+                "model": "Qwen/Qwen3-VL-Embedding-2B",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": [{"type": "text", "text": DEFAULT_MLLM_QUERY_INSTRUCTION}],
+                    },
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "What animal is shown?"}],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": ""}],
+                    },
+                ],
+                "encoding_format": "float",
+                "continue_final_message": True,
+                "add_special_tokens": True,
+            },
         )
 
     def test_text_search_applies_e5_query_prefix_before_embedding(self) -> None:
@@ -337,6 +405,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--text_model")
     parser.add_argument("--qwen_text_embed_api_base")
     parser.add_argument("--mllm_embed_api_base")
+    parser.add_argument("--mllm_model")
     parser.add_argument("--google-search-api-key")
     parser.add_argument("--google-image-api-key")
     parser.add_argument("--google-image-url")
@@ -446,6 +515,7 @@ def run_mllm(args: argparse.Namespace) -> None:
     mllm_kb = args.mllm_kb or os.environ.get("MLLM_KB", "")
     mllm_metadata = args.mllm_metadata or os.environ.get("MLLM_METADATA", "")
     mllm_embed_api_base = args.mllm_embed_api_base or os.environ.get("MLLM_EMBED_API_BASE", "")
+    mllm_model = args.mllm_model or os.environ.get("MLLM_EMBED_MODEL", "Qwen/Qwen3-VL-Embedding-2B")
     image_path = args.image or os.environ.get("IMAGE_PATH", str(DEFAULT_IMAGE))
     missing = [
         name
@@ -453,6 +523,7 @@ def run_mllm(args: argparse.Namespace) -> None:
             "--mllm_kb": mllm_kb,
             "--mllm_metadata": mllm_metadata,
             "--mllm_embed_api_base": mllm_embed_api_base,
+            "--mllm_model": mllm_model,
         }.items()
         if not value
     ]
@@ -463,7 +534,9 @@ def run_mllm(args: argparse.Namespace) -> None:
             mllm_kb=mllm_kb,
             mllm_metadata=mllm_metadata,
             mllm_embed_api_base=mllm_embed_api_base,
+            mllm_model=mllm_model,
             fusion="mllm",
+            instruction=DEFAULT_MLLM_QUERY_INSTRUCTION,
             timeout=args.timeout,
         )
     )

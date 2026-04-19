@@ -213,13 +213,7 @@ def build_mllm_payload(model: str, image_path: str | Path, text: str, instructio
             },
             {
                 "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": image_path_to_data_url(image_path)},
-                    },
-                    {"type": "text", "text": text},
-                ],
+                "content": [{"type": "text", "text": text}],
             },
             {
                 "role": "assistant",
