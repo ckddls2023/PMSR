@@ -95,42 +95,12 @@ def call_llm_judge(session: requests.Session, user_prompt: str, model_name: str 
     return None
 
 
-def extract_last_reasoning_record(total_pred: str) -> str:
-    """Extract the last reasoning record from Trajectory.all_reasoning() output.
-
-    Format produced by Trajectory.all_reasoning():
-        "Reasoning Record #1:\\n{reasoning}\\n\\nReasoning Record #2:\\n{reasoning}..."
-    """
-    if not total_pred:
-        return ""
-    # Split on "Reasoning Record #N:" optionally followed by newline
-    records = re.split(r"Reasoning Record #\d+:\n?", total_pred)
-    for record in reversed(records):
-        stripped = record.strip()
-        if stripped:
-            return stripped
-    return ""
-
-
 def _trajectory(row: dict[str, Any]) -> dict[str, Any]:
     trajectory = row.get("trajectory")
     return trajectory if isinstance(trajectory, dict) else {}
 
 
-def extract_last_reasoning_from_row(row: dict[str, Any]) -> str:
-    trajectory = _trajectory(row)
-    records = trajectory.get("records")
-    if isinstance(records, list):
-        for record in reversed(records):
-            if isinstance(record, dict) and record.get("reasoning"):
-                return str(record.get("reasoning") or "")
-    return extract_last_reasoning_record(str(trajectory.get("all_reasoning") or row.get("total_pred") or ""))
-
-
-def extract_model_response(row: dict[str, Any], eval_record: bool = False) -> str:
-    if eval_record:
-        return extract_last_reasoning_from_row(row)
-
+def extract_model_response(row: dict[str, Any]) -> str:
     trajectory = _trajectory(row)
     if trajectory.get("final_answer") not in (None, ""):
         return str(trajectory.get("final_answer") or "")
@@ -155,6 +125,12 @@ def extract_gold_answer(row: dict[str, Any]) -> Any:
             return input_row.get("answer")
 
     return row.get("answer", "")
+
+
+def has_existing_judge(row: dict[str, Any]) -> bool:
+    return bool(str(row.get("judge_score") or "").strip()) and bool(
+        str(row.get("judge_reason") or "").strip()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +160,7 @@ def save_jsonl(path: str | Path, records: list[dict[str, Any]]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def process_data(input_file: str, output_file: str, eval_record: bool = False) -> None:
+def process_data(input_file: str, output_file: str) -> None:
     logging.info(f"Starting processing for '{input_file}'...")
 
     try:
@@ -215,9 +191,19 @@ def process_data(input_file: str, output_file: str, eval_record: bool = False) -
             if i in processed_indices:
                 continue
 
+            if has_existing_judge(row):
+                new_row = row.copy()
+                new_row.setdefault("original_index", i)
+                processed_rows.append(new_row)
+                continue
+
+            if not API_KEY:
+                logging.error("OPENAI_API_KEY environment variable is required for rows without existing judge fields.")
+                break
+
             question = row.get("question", "")
             gold_answer = extract_gold_answer(row)
-            model_response = extract_model_response(row, eval_record=eval_record)
+            model_response = extract_model_response(row)
 
             user_prompt = USER_PROMPT_TEMPLATE.format(
                 question=question,
@@ -277,26 +263,22 @@ def calculate_score(output_path: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Evaluate a PMSR JSONL output using an LLM as a judge.")
+    parser.add_argument("--jsonl", required=True, help="Path to the input JSONL file produced by eval/main.py.")
+    return parser
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-    if not API_KEY:
-        logging.error("OPENAI_API_KEY environment variable is not set!")
-        return
-
-    parser = argparse.ArgumentParser(description="Evaluate a PMSR JSONL output using an LLM as a judge.")
-    parser.add_argument("--jsonl", required=True, help="Path to the input JSONL file produced by eval/main.py.")
-    parser.add_argument("--eval-record", action="store_true",
-                        help="Evaluate the last reasoning record instead of the final prediction.")
+    parser = build_parser()
     args = parser.parse_args()
 
     output_base = str(Path(args.jsonl).with_suffix(""))
-    if args.eval_record:
-        output_path = f"{output_base}_llm_eval_record.jsonl"
-    else:
-        output_path = f"{output_base}_llm_eval.jsonl"
+    output_path = f"{output_base}_llm_eval.jsonl"
 
-    process_data(args.jsonl, output_path, args.eval_record)
+    process_data(args.jsonl, output_path)
     calculate_score(output_path)
 
 
