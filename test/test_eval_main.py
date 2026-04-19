@@ -90,6 +90,42 @@ class EvalMainTest(unittest.TestCase):
         self.assertTrue(config.return_images)
         self.assertEqual(output_path.name, "InfoSeek_val_Qwen3.5-9B_iter3_topk10_text_pmsr.jsonl")
 
+    def test_output_path_includes_mllm_fusion_to_avoid_resuming_concat_outputs(self) -> None:
+        args = argparse.Namespace(
+            data="data/InfoSeek_val.jsonl",
+            output_dir="outputs",
+            model="Qwen/Qwen3.5-9B",
+            api_base="",
+            api_key="",
+            max_tokens=128,
+            temperature=0.0,
+            timeout=10,
+            retry=0,
+            text_kb="/tmp/text.index",
+            text_metadata="/tmp/text.jsonl",
+            text_embed_api_base="http://text",
+            text_model="",
+            pmsr_kb="/tmp/pmsr.index",
+            pmsr_metadata="/tmp/pmsr.csv",
+            mllm_kb="/tmp/mllm.index",
+            mllm_metadata="/tmp/mllm.csv",
+            mllm_embed_api_base="http://mllm",
+            mllm_model="Qwen/Qwen3-VL-Embedding-2B",
+            image_embed_api_base="",
+            pmsr_text_embed_api_base="",
+            pmsr_fusion="mllm",
+            return_images=True,
+            itercount=3,
+            topk=10,
+            threshold=0.9,
+            verbose=False,
+        )
+        config = build_config_from_args(args)
+
+        output_path = build_output_path(args, config)
+
+        self.assertEqual(output_path.name, "InfoSeek_val_Qwen3.5-9B_iter3_topk10_text_mllm.jsonl")
+
     def test_build_config_uses_args_return_images(self) -> None:
         args = argparse.Namespace(
             model="Qwen/Qwen3.5-9B",

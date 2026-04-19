@@ -174,7 +174,9 @@ def build_output_path(args: argparse.Namespace, config: AgentConfig) -> Path:
             stem += "_web"
         else:
             stem += "_text"
-    if config.pmsr_kb:
+    if config.pmsr_fusion == "mllm" and config.mllm_kb:
+        stem += "_mllm"
+    elif config.pmsr_kb:
         stem += "_pmsr"
     return output_dir / f"{stem}.jsonl"
 
