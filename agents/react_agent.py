@@ -22,8 +22,8 @@ _TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "text_search",
             "description": (
-                "Search the text knowledge base for relevant passages using a reasoning-augmented query. "
-                "Use when you need factual or encyclopaedic text about entities in the question or image."
+                "Search the web for relevant passages using a reasoning-augmented query. "
+                "Use when you need current, factual, or encyclopaedic text about entities in the question or image."
             ),
             "parameters": {
                 "type": "object",
@@ -42,8 +42,9 @@ _TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "image_search",
             "description": (
-                "Search the image-document knowledge base using the query image combined with a text query. "
-                "Use when you need visually similar reference documents or image-caption pairs."
+                "Run Google Lens-style image search for the query image. "
+                "Use when you need visually similar web images or image-caption evidence. "
+                "The query image is fixed, so this tool should usually be called once."
             ),
             "parameters": {
                 "type": "object",
@@ -62,23 +63,23 @@ _TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "pmsr_search",
             "description": (
-                "Dual-scope search: runs a record-level (local) query from the latest reasoning and a "
-                "trajectory-level (global) query from the full reasoning history, then merges results. "
-                "Use when you need both fine-grained and broad retrieval simultaneously."
+                "Dual-scope PMSR knowledge-base search. Runs a record-level query from the latest reasoning "
+                "and a trajectory-level query from the full reasoning history, then merges image-text results. "
+                "Use when you need structured PMSR multimodal retrieval from the Wikipedia image KB."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "local_query": {
+                    "record_level_query": {
                         "type": "string",
                         "description": "Focused query from the latest reasoning record.",
                     },
-                    "global_query": {
+                    "trajectory_level_query": {
                         "type": "string",
                         "description": "Broader query from the accumulated reasoning trajectory.",
                     },
                 },
-                "required": ["local_query", "global_query"],
+                "required": ["record_level_query", "trajectory_level_query"],
             },
         },
     },
@@ -124,8 +125,10 @@ class ReACTAgent(BaseAgent):
             timeout=config.timeout,
             retry=config.retry,
         )
-        self._text_search = self._build_text_retriever()
-        self._image_search = self._build_image_retriever()
+        self._web_search = self._build_web_retriever()
+        self._google_image_search = self._build_google_image_retriever()
+        self._pmsr_search = self._build_pmsr_retriever()
+        self._google_image_cache: dict[str, list[SearchResult]] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -231,25 +234,22 @@ class ReACTAgent(BaseAgent):
         """Execute one tool call and return (text_results, image_results)."""
         if tool_name == "text_search":
             query = _augment_query(str(args.get("query") or ""), latest_reasoning)
-            return self._retrieve_text(query, self.config.topk), []
+            return self._retrieve_web(query, self.config.topk), []
 
         if tool_name == "image_search":
             query = _augment_query(str(args.get("query") or ""), latest_reasoning)
-            return [], self._retrieve_image(image_path, query, max(self.config.topk // 2, 1))
+            return [], self._retrieve_google_image_once(image_path, query, self.config.topk)
 
         if tool_name == "pmsr_search":
-            local_query = str(args.get("local_query") or "")
-            global_query = str(args.get("global_query") or "")
-            half_k = max(self.config.topk // 2, 1)
-            text_results = _merge_results(
-                self._retrieve_text(local_query, half_k),
-                self._retrieve_text(global_query, half_k),
+            record_level_query = str(args.get("record_level_query") or args.get("local_query") or "")
+            trajectory_level_query = str(args.get("trajectory_level_query") or args.get("global_query") or "")
+            image_results = self._retrieve_pmsr_dual_scope(
+                image_path,
+                record_level_query,
+                trajectory_level_query,
+                self.config.topk,
             )
-            image_results = _merge_results(
-                self._retrieve_image(image_path, local_query, half_k),
-                self._retrieve_image(image_path, global_query, half_k),
-            )
-            return text_results, image_results
+            return [], image_results
 
         return [], []
 
@@ -295,22 +295,51 @@ class ReACTAgent(BaseAgent):
     # Retrieval
     # ------------------------------------------------------------------
 
-    def _retrieve_text(self, query: str, top_k: int) -> list[SearchResult]:
-        if self._text_search is None or not query:
+    def _retrieve_web(self, query: str, top_k: int) -> list[SearchResult]:
+        if self._web_search is None or not query:
             return []
         try:
-            return self._text_search.search(query, top_k=top_k)
+            return self._web_search.search(query, top_k=top_k)
         except Exception as exc:
             if self.config.verbose:
-                print(f"[ReACT] text retrieval error: {exc}")
+                print(f"[ReACT] web retrieval error: {exc}")
             return []
 
-    def _retrieve_image(self, image_path: str, caption: str, top_k: int) -> list[SearchResult]:
-        if self._image_search is None or not caption:
+    def _retrieve_google_image_once(self, image_path: str, question: str, top_k: int) -> list[SearchResult]:
+        if self._google_image_search is None or not image_path:
             return []
+        cache_key = image_path
+        if cache_key in self._google_image_cache:
+            return self._google_image_cache[cache_key]
         try:
-            return self._image_search.search(
-                {"image_path": image_path, "text": caption}, top_k=top_k
+            results = self._google_image_search.search(
+                {"image_path": image_path, "question": question}, top_k=top_k
+            )
+            self._google_image_cache[cache_key] = results
+            return results
+        except Exception as exc:
+            if self.config.verbose:
+                print(f"[ReACT] google image retrieval error: {exc}")
+            return []
+
+    def _retrieve_pmsr_dual_scope(
+        self,
+        image_path: str,
+        record_level_query: str,
+        trajectory_level_query: str,
+        top_k: int,
+    ) -> list[SearchResult]:
+        if self._pmsr_search is None or not image_path:
+            return []
+        half_k = max(top_k // 2, 1)
+        try:
+            return _merge_results(
+                self._pmsr_search.search(
+                    {"image_path": image_path, "text": record_level_query}, top_k=half_k
+                ) if record_level_query else [],
+                self._pmsr_search.search(
+                    {"image_path": image_path, "text": trajectory_level_query}, top_k=half_k
+                ) if trajectory_level_query else [],
             )
         except Exception as exc:
             if self.config.verbose:
@@ -321,31 +350,36 @@ class ReACTAgent(BaseAgent):
     # Builder helpers  (mirrors PMSRAgent)
     # ------------------------------------------------------------------
 
-    def _build_text_retriever(self):  # type: ignore[return]
-        cfg = self.config
-        if not cfg.text_kb:
-            return None
-        if cfg.text_kb.startswith(("http://", "https://")):
-            from search.google_search import GoogleSearch
-            return GoogleSearch()
-        if not cfg.text_metadata or not cfg.text_embed_api_base:
-            return None
-        from search.text_search import TextSearch, TextSearchConfig
-        return TextSearch(TextSearchConfig(
-            text_kb=cfg.text_kb,
-            text_metadata=cfg.text_metadata,
-            text_embed_api_base=cfg.text_embed_api_base,
-            text_model=cfg.text_model,
-            api_key=cfg.api_key,
-        ))
+    def _build_web_retriever(self):  # type: ignore[return]
+        from search.google_search import GoogleSearch
+        return GoogleSearch()
 
-    def _build_image_retriever(self):  # type: ignore[return]
+    def _build_google_image_retriever(self):  # type: ignore[return]
+        import os
+        if not os.environ.get("SCRAPINGDOG_API_KEY"):
+            return None
+        from search.google_image_search import GoogleImageSearch
+        return GoogleImageSearch()
+
+    def _build_pmsr_retriever(self):  # type: ignore[return]
         cfg = self.config
+        from search.pmsr_search import PMSRSearch, PMSRSearchConfig
+        if cfg.pmsr_fusion == "mllm":
+            if not cfg.mllm_kb or not cfg.mllm_metadata or not cfg.mllm_embed_api_base:
+                return None
+            return PMSRSearch(PMSRSearchConfig(
+                mllm_kb=cfg.mllm_kb,
+                mllm_metadata=cfg.mllm_metadata,
+                mllm_embed_api_base=cfg.mllm_embed_api_base,
+                mllm_model=cfg.mllm_model,
+                fusion="mllm",
+                api_key=cfg.api_key,
+            ))
+
         if not cfg.pmsr_kb or not cfg.pmsr_metadata:
             return None
         if not cfg.image_embed_api_base or not cfg.pmsr_text_embed_api_base:
             return None
-        from search.pmsr_search import PMSRSearch, PMSRSearchConfig
         return PMSRSearch(PMSRSearchConfig(
             pmsr_kb=cfg.pmsr_kb,
             pmsr_metadata=cfg.pmsr_metadata,
@@ -359,11 +393,11 @@ class ReACTAgent(BaseAgent):
 
     def _enabled_tools(self) -> list[dict[str, Any]]:
         tools: list[dict[str, Any]] = []
-        if self._text_search is not None:
+        if self._web_search is not None:
             tools.append(_TOOLS[0])  # text_search
-        if self._image_search is not None:
+        if self._google_image_search is not None:
             tools.append(_TOOLS[1])  # image_search
-        if self._text_search is not None or self._image_search is not None:
+        if self._pmsr_search is not None:
             tools.append(_TOOLS[2])  # pmsr_search
         return tools
 
@@ -385,7 +419,13 @@ def _extract_query_from_args(tool_name: str, args: dict[str, Any]) -> str:
     if tool_name in ("text_search", "image_search"):
         return str(args.get("query") or "")
     if tool_name == "pmsr_search":
-        return str(args.get("global_query") or args.get("local_query") or "")
+        return str(
+            args.get("trajectory_level_query")
+            or args.get("global_query")
+            or args.get("record_level_query")
+            or args.get("local_query")
+            or ""
+        )
     return ""
 
 

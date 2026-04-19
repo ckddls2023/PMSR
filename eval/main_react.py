@@ -85,11 +85,9 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
     )
     api_key = getattr(args, "api_key", None) or os.getenv("OPENAI_API_KEY") or ""
 
-    text_kb = getattr(args, "text_kb", None) or os.getenv("TEXT_KB") or ""
-    text_metadata = getattr(args, "text_metadata", None) or os.getenv("TEXT_METADATA") or ""
-    text_embed_api_base = (
-        getattr(args, "text_embed_api_base", None) or os.getenv("TEXT_EMBED_API_BASE") or ""
-    )
+    text_kb = "https://ollama.com/api/web_search"
+    text_metadata = ""
+    text_embed_api_base = ""
     text_model = (
         getattr(args, "text_model", None)
         or os.getenv("TEXT_MODEL")
@@ -103,11 +101,22 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
     image_embed_api_base = (
         getattr(args, "image_embed_api_base", None) or os.getenv("IMAGE_EMBED_API_BASE") or ""
     )
-    pmsr_text_embed_api_base = (
+    qwen_text_embed_api_base = (
         getattr(args, "pmsr_text_embed_api_base", None)
         or os.getenv("PMSR_TEXT_EMBED_API_BASE")
         or os.getenv("QWEN_TEXT_EMBED_API_BASE")
         or ""
+    )
+    pmsr_text_embed_api_base = qwen_text_embed_api_base
+    mllm_kb = getattr(args, "mllm_kb", None) or os.getenv("MLLM_KB") or ""
+    mllm_metadata = getattr(args, "mllm_metadata", None) or os.getenv("MLLM_METADATA") or ""
+    mllm_embed_api_base = (
+        getattr(args, "mllm_embed_api_base", None) or os.getenv("MLLM_EMBED_API_BASE") or ""
+    )
+    mllm_model = (
+        getattr(args, "mllm_model", None)
+        or os.getenv("MLLM_EMBED_MODEL")
+        or "Qwen/Qwen3-VL-Embedding-2B"
     )
 
     return AgentConfig(
@@ -127,6 +136,10 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
         image_embed_api_base=image_embed_api_base,
         pmsr_text_embed_api_base=pmsr_text_embed_api_base,
         pmsr_fusion=args.pmsr_fusion,
+        mllm_kb=mllm_kb,
+        mllm_metadata=mllm_metadata,
+        mllm_embed_api_base=mllm_embed_api_base,
+        mllm_model=mllm_model,
         return_images=args.return_images,
         max_iter=10,
         topk=args.topk,
@@ -159,7 +172,9 @@ def build_output_path(args: argparse.Namespace, config: AgentConfig) -> Path:
             stem += "_web"
         else:
             stem += "_text"
-    if config.pmsr_kb:
+    if config.pmsr_fusion == "mllm" and config.mllm_kb:
+        stem += "_mllm"
+    elif config.pmsr_kb:
         stem += "_pmsr"
     return output_dir / f"{stem}.jsonl"
 
@@ -296,6 +311,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pmsr-text-embed-api-base", dest="pmsr_text_embed_api_base", default=None)
     parser.add_argument("--pmsr-fusion", dest="pmsr_fusion", default="concat",
                         choices=["text", "concat", "image", "mllm"])
+    parser.add_argument("--mllm-kb", dest="mllm_kb", default=None)
+    parser.add_argument("--mllm-metadata", dest="mllm_metadata", default=None)
+    parser.add_argument("--mllm-embed-api-base", dest="mllm_embed_api_base", default=None)
+    parser.add_argument("--mllm-model", dest="mllm_model", default=None)
 
     # ReACT retrieval
     parser.add_argument("--topk", type=int, default=10)

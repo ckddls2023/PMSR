@@ -87,7 +87,7 @@ python eval/main.py \
   --pmsr-fusion mllm
 ```
 
-## Open-Web Benchmarks
+## Search-Oriented Benchmarks
 
 For FVQA, MMSearch, LiveVQA, and the InfoSeek Human 2K subset, use Ollama web search for text retrieval instead of the local text FAISS KB. Cache Google Image Search results first, then pass the cached JSONL to evaluation.
 
