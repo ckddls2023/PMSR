@@ -65,6 +65,28 @@ python eval/main.py \
   --topk 10
 ```
 
+To run PMSR with MLLM image-text retrieval, first set the MLLM embedding KB and endpoint in `.env`:
+
+```bash
+MLLM_EMBED_API_BASE=http://<host>:8013
+MLLM_EMBED_MODEL=Qwen/Qwen3-VL-Embedding-2B
+MLLM_KB=/path/to/wikipedia_mllm.index
+MLLM_METADATA=/path/to/wikipedia_mllm_metadata.csv
+```
+
+Then run evaluation with MLLM fusion:
+
+```bash
+python eval/main.py \
+  --data data/InfoSeek_val.jsonl \
+  --output-dir outputs/infoseek_val \
+  --model Qwen/Qwen3.5-9B \
+  --api-base http://<host>:8004/ \
+  --itercount 3 \
+  --topk 10 \
+  --pmsr-fusion mllm
+```
+
 ## Citation
 
 If you find PMSR useful for your research, please cite our paper:
