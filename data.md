@@ -45,13 +45,31 @@ Convert `qa.json` into PMSR JSONL format:
 
 - `question`: use `query`.
 - `image_path`: use the local path under the downloaded `image/` directory.
-- `answer`: use `gt_answer`.
+- `gold_answer`: use `gt_answer`.
+- `answer` and `answer_eval`: use `gt_answer`.
 - Preserve `sample_id`, and optionally merge `topic` or `context` from `qa_detailed.json`.
 
 Recommended output path:
 
 ```text
 data/LiveVQA_test.jsonl
+```
+
+Prepare the preview split with:
+
+```bash
+python scripts/process_livevqa_preview.py \
+  --output-jsonl data/LiveVQA_test.jsonl \
+  --image-root data/processed/livevqa/images
+```
+
+If you already downloaded the gated Hugging Face repository, pass the local snapshot path:
+
+```bash
+python scripts/process_livevqa_preview.py \
+  --snapshot-dir /path/to/LiveVQA-Research-Preview \
+  --output-jsonl data/LiveVQA_test.jsonl \
+  --image-root data/processed/livevqa/images
 ```
 
 ## FVQA
@@ -62,7 +80,8 @@ FVQA stores images as bytes in the Parquet file. Export each image to a local im
 
 - `question`: use the user text from `prompt`.
 - `image_path`: use the exported local image path.
-- `answer`: use `reward_model.ground_truth`.
+- `gold_answer`: use `reward_model.ground_truth`.
+- `answer` and `answer_eval`: use `reward_model.candidate_answers` when available, otherwise fall back to `reward_model.ground_truth`.
 - Preserve `data_id`, `category`, `candidate_answers`, and `image_urls` when available.
 
 Recommended output path:
@@ -70,6 +89,18 @@ Recommended output path:
 ```text
 data/fvqa_test.jsonl
 ```
+
+Prepare the test split with:
+
+```bash
+python scripts/process_fvqa_test.py \
+  --split test \
+  --output-jsonl data/fvqa_test.jsonl \
+  --image-root data/processed/fvqa/images
+```
+
+The script uses `huggingface_hub.snapshot_download` with split-specific patterns, so it downloads `fvqa_test.parquet` rather than the cached search-result pickle files.
+By default, the Hugging Face cache for this script is kept under `data/processed/fvqa/hf_cache`; pass `--cache-dir` to place it elsewhere.
 
 ## InfoSeek Human
 
@@ -83,7 +114,8 @@ This Parquet file follows the MMSearch-R1 style format with embedded image bytes
 
 - `question`: use the user text from `prompt`.
 - `image_path`: use the exported local image path.
-- `answer`: use `reward_model.ground_truth`.
+- `gold_answer`: use `reward_model.ground_truth`.
+- `answer` and `answer_eval`: use `reward_model.candidate_answers` when available, otherwise fall back to `reward_model.ground_truth`.
 - Preserve `data_id`, `image_id`, `candidate_answers`, and `data_source`.
 
 Recommended output path:
@@ -92,19 +124,55 @@ Recommended output path:
 data/InfoSeek_human_2k.jsonl
 ```
 
+Prepare the subset with:
+
+```bash
+python scripts/process_infoseek_human_subset.py \
+  --output-jsonl data/InfoSeek_human_2k.jsonl \
+  --image-root data/processed/infoseek_human/images
+```
+
+If the Parquet file is already downloaded, pass it directly:
+
+```bash
+python scripts/process_infoseek_human_subset.py \
+  --parquet-path /path/to/mmsearch_r1_infoseek_sub_2k.parquet \
+  --output-jsonl data/InfoSeek_human_2k.jsonl \
+  --image-root data/processed/infoseek_human/images
+```
+
 ## MMSearch
 
 Download [MMSearch](https://huggingface.co/datasets/CaraJ/MMSearch) from Hugging Face. For end-to-end PMSR evaluation, use the `end2end` subset. The `rerank` and `summarization` subsets are intended for task-specific evaluation.
 
 Convert the `end2end` split into PMSR JSONL:
 
-- `question`: use the main visual question.
-- `image_path`: use the exported or downloaded local image path.
-- `answer`: use the gold answer field.
-- Preserve category, source, date, query, and alternative answers when available. When processing the `end2end` split, select only rows whose corresponding language is English.
+- `question`: use `query`.
+- `image_path`: export `query_image` when present.
+- `gold_answer`: use `gt_answer`.
+- `answer` and `answer_eval`: use `gt_answer` plus `alternative_gt_answers`.
+- Preserve `sample_id`, `gt_requery`, `area`, `subfield`, `timestamp`, and alternative answers.
+- Keep only rows where `query_image` is not empty.
 
 Recommended output path:
 
 ```text
 data/MMSearch_end2end.jsonl
+```
+
+Prepare the end-to-end split with:
+
+```bash
+python scripts/process_mmsearch_end2end.py \
+  --output-jsonl data/MMSearch_end2end.jsonl \
+  --image-root data/processed/mmsearch/end2end/images
+```
+
+If `end2end.parquet` is already downloaded, pass it directly:
+
+```bash
+python scripts/process_mmsearch_end2end.py \
+  --parquet-path /path/to/end2end.parquet \
+  --output-jsonl data/MMSearch_end2end.jsonl \
+  --image-root data/processed/mmsearch/end2end/images
 ```
