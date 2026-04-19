@@ -134,6 +134,21 @@ python scripts/cache_google_image_search.py --jsonl data/InfoSeek_human_2k.jsonl
 
 Then evaluate each cached file with `--web-search`. This flag overrides `TEXT_KB` from `.env`, so these runs use live web search for text evidence while still using the cached Google Image Search results and the configured PMSR or MLLM image-text retriever.
 
+## ReACT with PMSR
+
+`eval/main_react.py` exposes a single model-facing tool, `pmsr_search`. The model plans step-by-step dual-scope queries, while the tool backend can use the PMSR KB, web search, or Google Lens depending on the flags:
+
+```bash
+python eval/main_react.py \
+  --data data/InfoSeek_val.jsonl \
+  --model Qwen/Qwen3.5-9B \
+  --api-base http://<host>:8004/ \
+  --topk 10 \
+  --pmsr-fusion mllm
+```
+
+Add `--web-search` to use Ollama web search as text evidence inside `pmsr_search`, and add `--google-lens-search` to use Google Lens image evidence inside the same tool.
+
 ## Citation
 
 If you find PMSR useful for your research, please cite our paper:
