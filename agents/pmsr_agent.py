@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import re
 from typing import Any
@@ -21,11 +22,9 @@ _GLOBAL_QUERY_PROMPT = (
     "Please first analyze all the information in a section named Analysis (## Analysis). "
     "Generate more accurate question based on the Knowledge to search more information helpful "
     "to addressing Query.\n"
-    "Your response should be in the following format:\n"
-    "## Analysis\n"
-    "Analysis query and correct knowledge to search more accurately.\n"
-    "## Output\n"
-    "Question: context-specific new question\n"
+    "Return only a valid JSON object in the following format:\n"
+    "{{\"analysis\": \"analysis query and correct knowledge to search more accurately\", "
+    "\"question\": \"context-specific new question\"}}\n"
 )
 
 
@@ -118,15 +117,20 @@ class PMSRAgent(BaseAgent):
         local_query = self._build_record_level_query(traj)
         global_query = self._build_trajectory_level_query(traj)
 
-        # Dual-scope retrieval, 20 for text passages, 10 for image-text pairs
-        text_results = self._merge_results(
-            self._retrieve_text(local_query, self.config.topk),
-            self._retrieve_text(global_query, self.config.topk),
-        )
-        image_results = self._merge_results(
-            self._retrieve_image(image_path, local_query, self.config.topk//2),
-            self._retrieve_image(image_path, global_query, self.config.topk//2),
-        )
+        if global_query:
+            # Dual-scope retrieval, 20 for text passages, 10 for image-text pairs
+            text_results = self._merge_results(
+                self._retrieve_text(local_query, self.config.topk),
+                self._retrieve_text(global_query, self.config.topk),
+            )
+            image_results = self._merge_results(
+                self._retrieve_image(image_path, local_query, self.config.topk // 2),
+                self._retrieve_image(image_path, global_query, self.config.topk // 2),
+            )
+        else:
+            global_query = local_query
+            text_results = self._retrieve_text(local_query, self.config.topk * 2)
+            image_results = self._retrieve_image(image_path, local_query, self.config.topk)
 
         reasoning = self._synthesize_reasoning(image_path, question, text_results, image_results)
 
@@ -153,9 +157,11 @@ class PMSRAgent(BaseAgent):
         except Exception as exc:
             if self.config.verbose:
                 print(f"[PMSRAgent] global query transformation failed: {exc}")
-            return _build_query(traj.question, knowledge)
+            return ""
         parsed_query = _extract_generated_question(raw_query)
-        return parsed_query or _build_query(traj.question, knowledge)
+        if not parsed_query and self.config.verbose:
+            print("[PMSRAgent] global query transformation did not return a parseable question")
+        return parsed_query
 
     # ------------------------------------------------------------------
     # VLM calls
@@ -463,10 +469,41 @@ def _strip_question_prefix(query: str) -> str:
 
 
 def _extract_generated_question(text: str) -> str:
-    output_match = re.search(r"(?is)##\s*Output.*?Question\s*:\s*(.+?)(?:\n|$)", text.strip())
+    stripped = str(text or "").strip()
+    json_question = _extract_json_question(stripped)
+    if json_question:
+        return json_question
+
+    output_match = re.search(r"(?is)##\s*Output.*?Question\s*:\s*(.+?)(?:\n|$)", stripped)
     if output_match:
         return output_match.group(1).strip()
-    fallback_match = re.search(r"(?i)Question\s*:\s*(.+?)(?:\n|$)", text.strip())
+    fallback_match = re.search(r"(?i)Question\s*:\s*(.+?)(?:\n|$)", stripped)
     if fallback_match:
         return fallback_match.group(1).strip()
     return ""
+
+
+def _extract_json_question(text: str) -> str:
+    for candidate in _json_candidates(text):
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            question = str(parsed.get("question") or "").strip()
+            if question:
+                return question
+    return ""
+
+
+def _json_candidates(text: str) -> list[str]:
+    stripped = str(text or "").strip()
+    candidates = [stripped]
+    fence_match = re.search(r"(?is)```(?:json)?\s*(\{.*?\})\s*```", stripped)
+    if fence_match:
+        candidates.append(fence_match.group(1).strip())
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start != -1 and end > start:
+        candidates.append(stripped[start:end + 1])
+    return candidates

@@ -193,7 +193,7 @@ class PMSRAgentQueryTest(unittest.TestCase):
         def fake_generate(self: PMSRAgent, image_path: str, prompt: str, image_text_pairs=None, text_passages=None) -> str:
             captured["image_path"] = image_path
             captured["prompt"] = prompt
-            return "## Analysis\nNeed plant usage.\n## Output\nQuestion: Smilax bona-nox medical uses"
+            return '{"analysis": "Need plant usage.", "question": "Smilax bona-nox medical uses"}'
 
         agent._generate = MethodType(fake_generate, agent)
         traj = Trajectory(question="What kind of medical usage has this plant?", image_path="/tmp/image.jpg")
@@ -206,10 +206,26 @@ class PMSRAgentQueryTest(unittest.TestCase):
         self.assertIn("**Query**: What kind of medical usage has this plant?", captured["prompt"])
         self.assertIn("**Knowledge**: Reasoning Record #1", captured["prompt"])
         self.assertIn("Generate more accurate question", captured["prompt"])
+        self.assertIn('"analysis"', captured["prompt"])
+        self.assertIn('"question"', captured["prompt"])
+
+    def test_trajectory_level_query_falls_back_to_legacy_question_format(self) -> None:
+        agent = make_agent()
+
+        def fake_generate(self: PMSRAgent, image_path: str, prompt: str, image_text_pairs=None, text_passages=None) -> str:
+            return "## Analysis\nNeed plant usage.\n## Output\nQuestion: Smilax bona-nox medical uses"
+
+        agent._generate = MethodType(fake_generate, agent)
+        traj = Trajectory(question="What kind of medical usage has this plant?", image_path="/tmp/image.jpg")
+        traj.records.append(Record(step=0, local_query="q0", global_query="q0", reasoning="The plant appears to be Smilax bona-nox."))
+
+        query = agent._build_trajectory_level_query(traj)
+
+        self.assertEqual(query, "Smilax bona-nox medical uses")
 
     def test_iterative_step_retrieves_with_record_and_trajectory_level_queries(self) -> None:
         agent = make_agent()
-        calls: list[tuple[str, str]] = []
+        calls: list[tuple[str, str, int]] = []
 
         def fake_build_record_level_query(self: PMSRAgent, traj: Trajectory) -> str:
             return "local query"
@@ -218,11 +234,11 @@ class PMSRAgentQueryTest(unittest.TestCase):
             return "transformed global query"
 
         def fake_retrieve_text(self: PMSRAgent, query: str, top_k: int):
-            calls.append(("text", query))
+            calls.append(("text", query, top_k))
             return []
 
         def fake_retrieve_image(self: PMSRAgent, image_path: str, query: str, top_k: int):
-            calls.append(("image", query))
+            calls.append(("image", query, top_k))
             return []
 
         agent._build_record_level_query = MethodType(fake_build_record_level_query, agent)
@@ -241,10 +257,49 @@ class PMSRAgentQueryTest(unittest.TestCase):
         self.assertEqual(
             calls,
             [
-                ("text", "local query"),
-                ("text", "transformed global query"),
-                ("image", "local query"),
-                ("image", "transformed global query"),
+                ("text", "local query", 2),
+                ("text", "transformed global query", 2),
+                ("image", "local query", 1),
+                ("image", "transformed global query", 1),
+            ],
+        )
+
+    def test_iterative_step_uses_record_level_query_twice_when_trajectory_query_fails(self) -> None:
+        agent = make_agent()
+        calls: list[tuple[str, str, int]] = []
+
+        def fake_build_record_level_query(self: PMSRAgent, traj: Trajectory) -> str:
+            return "local query"
+
+        def fake_generate(self: PMSRAgent, image_path: str, prompt: str, image_text_pairs=None, text_passages=None) -> str:
+            return "I cannot produce a better query."
+
+        def fake_retrieve_text(self: PMSRAgent, query: str, top_k: int):
+            calls.append(("text", query, top_k))
+            return []
+
+        def fake_retrieve_image(self: PMSRAgent, image_path: str, query: str, top_k: int):
+            calls.append(("image", query, top_k))
+            return []
+
+        agent._build_record_level_query = MethodType(fake_build_record_level_query, agent)
+        agent._generate = MethodType(fake_generate, agent)
+        agent._retrieve_text = MethodType(fake_retrieve_text, agent)
+        agent._retrieve_image = MethodType(fake_retrieve_image, agent)
+        agent._synthesize_reasoning = MethodType(lambda self, image_path, question, text_results, image_results: "reasoning", agent)
+
+        traj = Trajectory(question="Question?", image_path="/tmp/image.jpg")
+        traj.records.append(Record(step=0, local_query="q0", global_query="q0", reasoning="previous reasoning"))
+
+        record = agent._iterative_step(traj, step=1)
+
+        self.assertEqual(record.local_query, "local query")
+        self.assertEqual(record.global_query, "local query")
+        self.assertEqual(
+            calls,
+            [
+                ("text", "local query", 4),
+                ("image", "local query", 2),
             ],
         )
 
