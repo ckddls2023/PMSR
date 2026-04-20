@@ -21,7 +21,7 @@ from api.openai import OpenAICompatibleClient, build_pmsr_user_message
 _GLOBAL_QUERY_PROMPT = (
     "**Query**: {question}\n"
     "**Knowledge**: {knowledge}\n\n"
-    "Please first analyze all the information in a section named Analysis (## Analysis). "
+    "Please first analyze all the information in a section named analysis. "
     "Generate more accurate question based on the Knowledge to search more information helpful "
     "to addressing Query.\n"
     "Return only a valid JSON object in the following format:\n"
@@ -70,11 +70,11 @@ class PMSRAgent(BaseAgent):
 
         for step in range(1, self.config.max_iter + 1):
             record = self._iterative_step(traj, step)
+            traj.records.append(record)
             if self._should_stop(traj, record):
                 if self.config.verbose:
                     print(f"[PMSRAgent] adaptive stop before step {step}")
                 break
-            traj.records.append(record)
 
         traj.final_answer = self._final_answer(traj)
         return traj
