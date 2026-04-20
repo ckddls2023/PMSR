@@ -20,6 +20,13 @@ from typing import Any
 
 bem_model = None
 bem_tokenizer = None
+bem_cls_id = None
+bem_sep_id = None
+
+_BEM_VOCAB_PATH = (
+    "gs://cloud-tpu-checkpoints/bert/keras_bert/uncased_L-12_H-768_A-12/vocab.txt"
+)
+_BEM_MODEL_PATH = "https://tfhub.dev/google/answer_equivalence/bem/1"
 
 _PUNCTUATION = string.punctuation + "‘’´`_"
 _DIGIT_MAP = {
@@ -383,48 +390,89 @@ def evaluate_cem_accuracy(predictions: list[dict[str, Any]]) -> tuple[float, lis
 
 
 def initialize_bem_model_and_transformers() -> None:
-    """Initializes the BEM tokenizer and model from Hugging Face."""
-    global bem_tokenizer, bem_model
-    if bem_tokenizer is not None and bem_model is not None:
+    """Initializes the strict TensorFlow Hub BEM tokenizer and model."""
+    global bem_tokenizer, bem_model, bem_cls_id, bem_sep_id
+    if (
+        bem_tokenizer is not None
+        and bem_model is not None
+        and bem_cls_id is not None
+        and bem_sep_id is not None
+    ):
         return
 
-    from transformers import AutoModelForSequenceClassification, AutoTokenizer
-    import torch
+    import tensorflow as tf
+    import tensorflow_hub as hub
+    import tensorflow_text as text
 
-    print("Initializing BEM model and tokenizer (kortukov/answer-equivalence-bem)...")
-    bem_tokenizer = AutoTokenizer.from_pretrained("kortukov/answer-equivalence-bem")
-    bem_model = AutoModelForSequenceClassification.from_pretrained(
-        "kortukov/answer-equivalence-bem"
+    print("Initializing BEM model and tokenizer from TensorFlow Hub...")
+    vocab_table = tf.lookup.StaticVocabularyTable(
+        tf.lookup.TextFileInitializer(
+            filename=_BEM_VOCAB_PATH,
+            key_dtype=tf.string,
+            key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
+            value_dtype=tf.int64,
+            value_index=tf.lookup.TextFileIndex.LINE_NUMBER,
+        ),
+        num_oov_buckets=1,
     )
-    if torch.cuda.is_available():
-        bem_model = bem_model.to("cuda")
+    bem_cls_id, bem_sep_id = vocab_table.lookup(tf.convert_to_tensor(["[CLS]", "[SEP]"]))
+    bem_tokenizer = text.BertTokenizer(
+        vocab_lookup_table=vocab_table,
+        token_out_type=tf.int64,
+        preserve_unused_token=True,
+        lower_case=True,
+    )
+    bem_model = hub.load(_BEM_MODEL_PATH)
     print("BEM model and tokenizer initialized successfully.")
 
 
 def run_bem_evaluation(question: str, reference: str, candidate: str) -> bool:
-    """Run BEM answer-equivalence checking for one candidate/reference pair."""
-    global bem_tokenizer, bem_model
-    if not all([bem_tokenizer, bem_model]):
+    """Run strict TensorFlow BEM answer-equivalence checking for one pair."""
+    global bem_tokenizer, bem_model, bem_cls_id, bem_sep_id
+    if not all([bem_tokenizer, bem_model, bem_cls_id is not None, bem_sep_id is not None]):
         raise RuntimeError("BEM components are not initialized.")
 
-    import torch
-    from torch.nn import functional as F
+    import numpy as np
+    import scipy.special
+    import tensorflow_text as text
 
-    text = f"[CLS] {candidate} [SEP]"
-    text_pair = f"{reference} [SEP] {question} [SEP]"
-    inputs = bem_tokenizer(
-        text=text,
-        text_pair=text_pair,
-        add_special_tokens=False,
-        padding="max_length",
-        truncation=True,
-        return_tensors="pt",
+    if "<answer>" in candidate:
+        candidate = (
+            candidate.replace("<answer>", "")
+            .replace("</answer>", "")
+            .replace("<reason>", "")
+            .replace("</reason>", "")
+            .replace("<think>", "")
+            .replace("</think>", "")
+        )
+
+    question_tokens = bem_tokenizer.tokenize(question).merge_dims(1, 2)
+    reference_tokens = bem_tokenizer.tokenize(str(reference)).merge_dims(1, 2)
+    candidate_tokens = bem_tokenizer.tokenize(candidate).merge_dims(1, 2)
+    input_ids, segment_ids = text.combine_segments(
+        (candidate_tokens, reference_tokens, question_tokens), bem_cls_id, bem_sep_id
     )
-    inputs = {key: value.to(bem_model.device) for key, value in inputs.items()}
-    with torch.no_grad():
-        outputs = bem_model(**inputs)
-    probabilities = F.softmax(outputs.logits, dim=-1).cpu().numpy()
-    return bool(probabilities[0][1] > 0.5)
+
+    def pad(array: np.ndarray, length: int = 512) -> np.ndarray:
+        current_length = array.shape[-1]
+        if current_length >= length:
+            return array[:length]
+        return np.append(array, np.zeros(length - current_length, np.int32))
+
+    input_ids_array = input_ids.numpy()
+    segment_ids_array = segment_ids.numpy()
+    if input_ids_array.ndim > 1:
+        input_ids_array = np.squeeze(input_ids_array)
+    if segment_ids_array.ndim > 1:
+        segment_ids_array = np.squeeze(segment_ids_array)
+
+    inputs = {
+        "input_ids": np.expand_dims(pad(input_ids_array), 0),
+        "segment_ids": np.expand_dims(pad(segment_ids_array), 0),
+    }
+    raw_outputs = bem_model(inputs)
+    bem_score = scipy.special.softmax(np.squeeze(raw_outputs))[1]
+    return bool(bem_score >= 0.5)
 
 
 def evaluate_bem_accuracy(predictions: list[dict[str, Any]]) -> tuple[float, list[bool]]:
