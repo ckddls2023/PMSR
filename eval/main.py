@@ -168,6 +168,7 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
         return_images=args.return_images,
         max_iter=args.itercount,
         topk=args.topk,
+        use_traj_query=getattr(args, "use_traj_query", True),
         threshold=args.threshold,
         verbose=args.verbose,
     )
@@ -202,6 +203,8 @@ def build_output_path(args: argparse.Namespace, config: AgentConfig) -> Path:
         stem += "_mllm"
     elif config.pmsr_kb:
         stem += "_pmsr"
+    if not config.use_traj_query:
+        stem += "_without_ask"
     return output_dir / f"{stem}.jsonl"
 
 
@@ -349,6 +352,13 @@ def build_parser() -> argparse.ArgumentParser:
     # Retrieval / iteration
     parser.add_argument("--itercount", type=int, default=3)
     parser.add_argument("--topk", type=int, default=10)
+    parser.set_defaults(use_traj_query=True)
+    parser.add_argument(
+        "--without-traj-query",
+        dest="use_traj_query",
+        action="store_false",
+        help="Disable trajectory-level query generation and retrieve using only record-level queries.",
+    )
     parser.add_argument("--threshold", type=float, default=0.9,
                         help="Adaptive stopping similarity threshold τ (default: 0.9)")
     parser.set_defaults(return_images=True)

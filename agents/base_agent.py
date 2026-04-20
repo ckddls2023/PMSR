@@ -60,6 +60,7 @@ class AgentConfig:
     # Iteration
     max_iter: int = 3
     topk: int = 10
+    use_traj_query: bool = True
 
     # Adaptive stopping (per paper §3.3): always on.
     # Stops when current queries are similar to previous queries (threshold τ).

@@ -343,6 +343,49 @@ class PMSRAgentQueryTest(unittest.TestCase):
             ],
         )
 
+    def test_iterative_step_skips_trajectory_query_when_disabled(self) -> None:
+        agent = make_agent()
+        agent.config.use_traj_query = False
+        calls: list[tuple[str, str, int]] = []
+
+        def fake_build_record_level_query(self: PMSRAgent, traj: Trajectory) -> str:
+            return "local query"
+
+        def fail_build_trajectory_level_query(self: PMSRAgent, traj: Trajectory) -> str:
+            raise AssertionError("trajectory-level query should be disabled")
+
+        def fake_retrieve_text(self: PMSRAgent, query: str, top_k: int):
+            calls.append(("text", query, top_k))
+            return []
+
+        def fake_retrieve_image(self: PMSRAgent, image_path: str, query: str, top_k: int):
+            calls.append(("image", query, top_k))
+            return []
+
+        agent._build_record_level_query = MethodType(fake_build_record_level_query, agent)
+        agent._build_trajectory_level_query = MethodType(fail_build_trajectory_level_query, agent)
+        agent._retrieve_text = MethodType(fake_retrieve_text, agent)
+        agent._retrieve_image = MethodType(fake_retrieve_image, agent)
+        agent._synthesize_reasoning = MethodType(
+            lambda self, image_path, question, text_results, image_results: "reasoning",
+            agent,
+        )
+
+        traj = Trajectory(question="Question?", image_path="/tmp/image.jpg")
+        traj.records.append(Record(step=0, local_query="q0", global_query="q0", reasoning="previous reasoning"))
+
+        record = agent._iterative_step(traj, step=1)
+
+        self.assertEqual(record.local_query, "local query")
+        self.assertEqual(record.global_query, "local query")
+        self.assertEqual(
+            calls,
+            [
+                ("text", "local query", 4),
+                ("image", "local query", 2),
+            ],
+        )
+
     def test_run_builds_candidate_record_before_adaptive_stop(self) -> None:
         agent = make_agent()
         agent.config.max_iter = 2

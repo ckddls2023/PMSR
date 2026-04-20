@@ -125,7 +125,7 @@ class PMSRAgent(BaseAgent):
         image_path = traj.image_path
 
         local_query = self._build_record_level_query(traj)
-        global_query = self._build_trajectory_level_query(traj)
+        global_query = self._build_trajectory_level_query(traj) if self.config.use_traj_query else ""
 
         if global_query:
             # Dual-scope retrieval, 20 for text passages, 10 for image-text pairs

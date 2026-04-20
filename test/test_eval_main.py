@@ -219,6 +219,26 @@ class EvalMainTest(unittest.TestCase):
 
         self.assertFalse(args.return_images)
 
+    def test_parser_without_traj_query_sets_config_and_output_suffix(self) -> None:
+        from eval.main import build_parser
+
+        args = build_parser().parse_args(
+            [
+                "--data",
+                "data/EVQA_test.jsonl",
+                "--model",
+                "qwen/qwen3-vl-8b-instruct",
+                "--without-traj-query",
+            ]
+        )
+        config = build_config_from_args(args)
+        output_path = build_output_path(args, config)
+
+        self.assertFalse(args.use_traj_query)
+        self.assertFalse(config.use_traj_query)
+        self.assertIn("EVQA_test_qwen3-vl-8b-instruct_iter3_topk10", output_path.name)
+        self.assertTrue(output_path.name.endswith("_without_ask.jsonl"))
+
     def test_web_search_flag_overrides_text_kb_with_ollama_web_search(self) -> None:
         from eval.main import build_parser
 
