@@ -21,19 +21,13 @@ _TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "pmsr_search",
             "description": (
-                "Dual-scope PMSR knowledge-base search. Runs a record-level query from the latest reasoning "
+                "Dual-scope knowledge-base search. Runs a record-level query from the latest reasoning "
                 "and a trajectory-level query from the full reasoning history, then merges retrieved evidence. "
-                "Depending on runtime options, this single tool may use PMSR KB retrieval, web text search, "
-                "or Google Lens image search internally."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "record_level_query": {
-                        "type": "string",
-                        "description": "Focused query from the latest reasoning record.",
-                    },
-                    "trajectory_level_query": {
+                    "query": {
                         "type": "string",
                         "description": "Broader query from the accumulated reasoning trajectory.",
                     },
@@ -47,10 +41,9 @@ _TOOLS: list[dict[str, Any]] = [
 _SYSTEM_PROMPT = (
     "You are a visual question answering expert. "
     "Follow a ReACT loop using only the pmsr_search tool. "
-    "Decompose the question into focused retrieval steps, plan record-level and trajectory-level queries, "
-    "observe the PMSR image-text evidence, and repeat until you have enough evidence to answer. "
-    "The record-level query should target the latest missing detail. "
-    "The trajectory-level query should reflect the full reasoning state and broader entity context. "
+    "Decompose the question into focused retrieval steps, plan to retrieve relevant information via new queries, "
+    "The decomposed/planned pmsr_search queries of each step-by-step should reflect reasoning state and broader/connect relevant context. "
+    "Observe the consolidated knowledge evidence, and repeat until you have enough evidence to answer. "
     "When you have sufficient evidence, provide the final answer directly without calling any more tools."
 )
 
