@@ -189,24 +189,34 @@ def extract_last_reasoning_record_from_prediction(prediction: dict[str, Any]) ->
 def _reference_values(prediction: dict[str, Any]) -> list[Any]:
     answer_eval = prediction.get("answer_eval")
     if not isinstance(answer_eval, bool) and not _is_missing(answer_eval):
-        return _as_list(answer_eval)
+        references = _as_list(answer_eval)
+        if references:
+            return references
 
     gold_answer = prediction.get("gold_answer")
     if not _is_missing(gold_answer):
-        return _as_list(gold_answer)
+        references = _as_list(gold_answer)
+        if references:
+            return references
 
     answer = prediction.get("answer")
     if not _is_missing(answer):
-        return _as_list(answer)
+        references = _as_list(answer)
+        if references:
+            return references
 
     input_row = prediction.get("input")
     if isinstance(input_row, dict):
         answer_eval = input_row.get("answer_eval")
         if not isinstance(answer_eval, bool) and not _is_missing(answer_eval):
-            return _as_list(answer_eval)
+            references = _as_list(answer_eval)
+            if references:
+                return references
         answer = input_row.get("answer")
         if not _is_missing(answer):
-            return _as_list(answer)
+            references = _as_list(answer)
+            if references:
+                return references
 
     return []
 
