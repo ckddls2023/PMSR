@@ -73,7 +73,6 @@ class PMSRAgent(BaseAgent):
             if self._should_stop(traj, record):
                 if self.config.verbose:
                     print(f"[PMSRAgent] adaptive stop before step {step}")
-                traj.records.append(record)
                 break
             traj.records.append(record)
 
@@ -90,13 +89,14 @@ class PMSRAgent(BaseAgent):
         image_path = traj.image_path
 
         description = self._describe_image(image_path, question)
-        query = f"Question: {question}\n{description}"
+        text_query = f"Question: {question}\n{description}"
+        image_query = f"Question: {question}"
 
-        text_results = self._retrieve_text(query, self.config.topk * 2)
+        text_results = self._retrieve_text(text_query, self.config.topk * 2)
         cached = self._load_cached_image_results(item)
         pmsr_results: list[SearchResult] = []
         if not cached:
-            pmsr_results = self._retrieve_image(image_path, query, self.config.topk)
+            pmsr_results = self._retrieve_image(image_path, image_query, self.config.topk)
         image_results = self._merge_results(cached, pmsr_results)
 
         reasoning = self._synthesize_reasoning(
@@ -109,8 +109,8 @@ class PMSRAgent(BaseAgent):
 
         return Record(
             step=0,
-            local_query=query,
-            global_query=query,
+            local_query=text_query,
+            global_query=text_query,
             text_results=text_results,
             image_results=image_results,
             reasoning=reasoning,

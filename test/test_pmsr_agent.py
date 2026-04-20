@@ -131,6 +131,41 @@ class PMSRAgentQueryTest(unittest.TestCase):
         self.assertEqual(captured["image_text_pairs"], [{"image_path": "/tmp/ref.jpg", "caption": "reference caption"}])
         self.assertEqual(captured["text_passages"], [{"title": "Plant", "text": "Plant knowledge."}])
 
+    def test_step0_uses_description_for_text_query_and_question_for_image_query(self) -> None:
+        agent = make_agent()
+        calls: list[tuple[str, str, int]] = []
+
+        agent._describe_image = MethodType(lambda self, image_path, question: "A green plant.", agent)
+        agent._load_cached_image_results = MethodType(lambda self, item: [], agent)
+        agent._synthesize_reasoning = MethodType(
+            lambda self, image_path, question, text_results, image_results, description="": "reasoning",
+            agent,
+        )
+
+        def fake_retrieve_text(self: PMSRAgent, query: str, top_k: int):
+            calls.append(("text", query, top_k))
+            return []
+
+        def fake_retrieve_image(self: PMSRAgent, image_path: str, query: str, top_k: int):
+            calls.append(("image", query, top_k))
+            return []
+
+        agent._retrieve_text = MethodType(fake_retrieve_text, agent)
+        agent._retrieve_image = MethodType(fake_retrieve_image, agent)
+
+        traj = Trajectory(question="What kind of medical usage has this plant?", image_path="/tmp/image.jpg")
+        record = agent._step0(traj, {})
+
+        self.assertEqual(
+            calls,
+            [
+                ("text", "Question: What kind of medical usage has this plant?\nA green plant.", 4),
+                ("image", "Question: What kind of medical usage has this plant?", 2),
+            ],
+        )
+        self.assertEqual(record.local_query, "Question: What kind of medical usage has this plant?\nA green plant.")
+        self.assertEqual(record.global_query, "Question: What kind of medical usage has this plant?\nA green plant.")
+
     def test_iterative_reasoning_prompt_matches_reference(self) -> None:
         agent = make_agent()
         captured: dict[str, object] = {}
