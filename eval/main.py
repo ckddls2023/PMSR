@@ -145,6 +145,8 @@ def build_config_from_args(args: argparse.Namespace) -> AgentConfig:
         api_key=api_key,
         max_tokens=args.max_tokens,
         temperature=args.temperature,
+        top_p=getattr(args, "top_p", 0.8),
+        top_k=getattr(args, "top_k", 20),
         timeout=args.timeout,
         retry=args.retry,
         text_kb=text_kb,
@@ -316,6 +318,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-key", dest="api_key", default=None)
     parser.add_argument("--max-tokens", dest="max_tokens", type=int, default=32768)
     parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--top-p", dest="top_p", type=float, default=0.8)
+    parser.add_argument("--top-k", dest="top_k", type=int, default=20,
+                        help="Model generation top_k. Retrieval uses --topk.")
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--retry", type=int, default=3)
 

@@ -190,6 +190,8 @@ class OpenAICompatibleClient:
         retry: int = 3,
         wait: float = 2.0,
         temperature: float = 0.0,
+        top_p: float | None = 0.8,
+        top_k: int | None = 20,
         max_tokens: int | None = None,
         extra_body: dict[str, Any] | None = None,
     ) -> None:
@@ -200,6 +202,8 @@ class OpenAICompatibleClient:
         self.retry = retry
         self.wait = wait
         self.temperature = temperature
+        self.top_p = top_p
+        self.top_k = top_k
         self.max_tokens = max_tokens
         self.extra_body = dict(extra_body or {})
 
@@ -208,6 +212,8 @@ class OpenAICompatibleClient:
         messages: list[dict[str, Any]],
         *,
         temperature: float | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
         max_tokens: int | None = None,
         extra_body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -219,6 +225,12 @@ class OpenAICompatibleClient:
         output_tokens = self.max_tokens if max_tokens is None else max_tokens
         if output_tokens is not None:
             payload["max_tokens"] = output_tokens
+        output_top_p = self.top_p if top_p is None else top_p
+        if output_top_p is not None:
+            payload["top_p"] = output_top_p
+        output_top_k = self.top_k if top_k is None else top_k
+        if output_top_k is not None:
+            payload["top_k"] = output_top_k
         merged_extra_body = dict(self.extra_body)
         merged_extra_body.update(extra_body or {})
         payload.update(merged_extra_body)
@@ -305,6 +317,8 @@ def chat(
     api_base: str | None = None,
     api_key: str | None = None,
     temperature: float = 0.0,
+    top_p: float | None = 0.8,
+    top_k: int | None = 20,
     max_tokens: int | None = None,
     timeout: int = 300,
     retry: int = 3,
@@ -321,6 +335,8 @@ def chat(
         retry=retry,
         wait=wait,
         temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
         max_tokens=max_tokens,
         extra_body=extra_body,
     )

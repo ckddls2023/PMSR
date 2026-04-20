@@ -201,6 +201,17 @@ class EvalMainTest(unittest.TestCase):
 
         self.assertTrue(args.return_images)
 
+    def test_parser_defaults_generation_sampling_parameters(self) -> None:
+        from eval.main import build_parser
+
+        args = build_parser().parse_args([])
+        config = build_config_from_args(args)
+
+        self.assertEqual(args.top_p, 0.8)
+        self.assertEqual(args.top_k, 20)
+        self.assertEqual(config.top_p, 0.8)
+        self.assertEqual(config.top_k, 20)
+
     def test_parser_without_image_sets_return_images_to_false(self) -> None:
         from eval.main import build_parser
 

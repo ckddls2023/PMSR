@@ -17,6 +17,8 @@ class AgentConfig:
     api_key: str = ""
     max_tokens: int = 32768
     temperature: float = 0.7
+    top_p: float = 0.8
+    top_k: int = 20
     timeout: int = 300
     retry: int = 3
 

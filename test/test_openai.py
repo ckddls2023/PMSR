@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,13 +14,38 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from api import build_multimodal_user_message, build_text_message, chat_completion
-from api.openai import ProviderError, normalize_chat_completions_url
+from api.openai import OpenAICompatibleClient, ProviderError, normalize_chat_completions_url
 
 
 DEFAULT_PROMPT = "Answer with exactly one word: ok"
 DEFAULT_IMAGE_PROMPT = "Describe this image in one short sentence."
 DEFAULT_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
 DEFAULT_IMAGE_PATH = ROOT / "test" / "image.jpg"
+
+
+class OpenAIClientPayloadTest(unittest.TestCase):
+    def test_client_sends_default_top_p_and_top_k(self) -> None:
+        class FakeResponse:
+            status_code = 200
+            text = "{}"
+
+            def json(self) -> dict:
+                return {"choices": [{"message": {"content": "ok"}}]}
+
+        with patch("api.openai.requests.post", return_value=FakeResponse()) as mock_post:
+            client = OpenAICompatibleClient(
+                model="Qwen/Qwen3.5-9B",
+                api_base="http://localhost:8000",
+                temperature=0.7,
+                max_tokens=32,
+                retry=0,
+            )
+            client.chat([build_text_message("user", "hello")])
+
+        payload = json.loads(mock_post.call_args.kwargs["data"])
+        self.assertEqual(payload["temperature"], 0.7)
+        self.assertEqual(payload["top_p"], 0.8)
+        self.assertEqual(payload["top_k"], 20)
 
 
 def load_env_file(path: str | Path = ".env") -> None:

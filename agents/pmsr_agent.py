@@ -50,6 +50,8 @@ class PMSRAgent(BaseAgent):
             api_key=config.api_key or None,
             max_tokens=config.max_tokens,
             temperature=config.temperature,
+            top_p=config.top_p,
+            top_k=config.top_k,
             timeout=config.timeout,
             retry=config.retry,
         )
