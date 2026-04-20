@@ -15,8 +15,11 @@ from eval.evaluate_retrieval import build_parser, build_pmsr_search, compute_rec
 
 
 class FakeRetriever:
+    def __init__(self) -> None:
+        self.queries = []
+
     def search(self, query, top_k: int = 5):
-        del query
+        self.queries.append(query)
         rows = [
             SearchResult(
                 evidence=Evidence(
@@ -76,6 +79,37 @@ class EvaluateRetrievalTest(unittest.TestCase):
         args = build_parser().parse_args(["--pmsr-fusion", "mllm"])
 
         self.assertEqual(args.pmsr_fusion, "mllm")
+
+    def test_parser_accepts_describe(self) -> None:
+        args = build_parser().parse_args(["--describe"])
+
+        self.assertTrue(args.describe)
+
+    def test_compute_recall_appends_model_description_to_query_text(self) -> None:
+        dataset = [
+            {
+                "image_path": "/tmp/query.jpg",
+                "question": "What kind of medical usage has this plant?",
+                "entity_text": ["Smilax bona-nox"],
+            }
+        ]
+        retriever = FakeRetriever()
+
+        scores = compute_recall(
+            dataset,
+            retriever,
+            top_ks=[1],
+            describer=lambda image_path, question: "The image contains a greenbrier vine.",
+        )
+
+        self.assertEqual(scores["R@1"], 1.0)
+        self.assertEqual(
+            retriever.queries[0],
+            {
+                "image_path": "/tmp/query.jpg",
+                "text": "Question: What kind of medical usage has this plant?\nThe image contains a greenbrier vine.",
+            },
+        )
 
     def test_build_pmsr_search_uses_mllm_config_for_mllm_fusion(self) -> None:
         args = build_parser().parse_args(

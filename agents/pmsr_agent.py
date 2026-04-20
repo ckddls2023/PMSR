@@ -70,11 +70,12 @@ class PMSRAgent(BaseAgent):
 
         for step in range(1, self.config.max_iter + 1):
             record = self._iterative_step(traj, step)
-            traj.records.append(record)
             if self._should_stop(traj, record):
                 if self.config.verbose:
                     print(f"[PMSRAgent] adaptive stop before step {step}")
+                traj.records.append(record)
                 break
+            traj.records.append(record)
 
         traj.final_answer = self._final_answer(traj)
         return traj

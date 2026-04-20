@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agents.schemas import SearchResult
+from api.openai import OpenAICompatibleClient, build_pmsr_user_message
 from search.pmsr_search import PMSRSearch, PMSRSearchConfig
 
 
@@ -108,6 +109,7 @@ def compute_recall(
     *,
     top_ks: Sequence[int] = (5, 10, 20),
     use_question: bool = True,
+    describer: Any | None = None,
 ) -> dict[str, float | int]:
     sorted_top_ks = sorted(set(int(k) for k in top_ks))
     max_k = max(sorted_top_ks)
@@ -124,7 +126,17 @@ def compute_recall(
 
         query = {"image_path": image_path}
         if use_question:
-            query["text"] = question
+            query_text = question
+            if describer is not None:
+                try:
+                    description = str(describer(str(image_path), str(question)) or "").strip()
+                except Exception as exc:
+                    errors += 1
+                    item_id = item.get("question_id") or item.get("dataset_image_ids") or total
+                    print(f"[warn] description failed item={item_id}: {exc}", file=sys.stderr)
+                    continue
+                query_text = f"Question: {question}\n{description}" if description else str(question)
+            query["text"] = query_text
 
         try:
             results = retriever.search(query, top_k=max_k)
@@ -224,6 +236,34 @@ def build_pmsr_search(args: argparse.Namespace) -> PMSRSearch:
     )
 
 
+def build_describer(args: argparse.Namespace):
+    if not args.describe:
+        return None
+
+    api_base = args.api_base or os.environ.get("VLLM_API_BASE", "") or os.environ.get("API_BASE", "")
+    model = args.model or os.environ.get("MODEL", "") or os.environ.get("OPENAI_MODEL", "Qwen/Qwen3.5-9B")
+    api_key = args.api_key or os.environ.get("OPENAI_API_KEY", "")
+    if not api_base:
+        raise SystemExit("Missing API base for --describe. Pass --api-base or set VLLM_API_BASE/API_BASE.")
+
+    client = OpenAICompatibleClient(
+        model=model,
+        api_base=api_base,
+        api_key=api_key,
+        max_tokens=args.describe_max_tokens,
+        temperature=args.temperature,
+        timeout=args.timeout,
+        retry=args.retry,
+    )
+
+    def describe(image_path: str, question: str) -> str:
+        prompt = f"Question: {question}\nConcisely describe image which is relevant to question.\n"
+        user_msg = build_pmsr_user_message(image_path=image_path or None, prompt=prompt)
+        return str(client.chat([user_msg])["content"])
+
+    return describe
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Evaluate PMSR KB retrieval recall on EVQA.")
     parser.add_argument("--data", "--jsonl_path", dest="data", default=str(DEFAULT_DATA))
@@ -239,8 +279,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-k", "--topk", dest="top_ks", action="append", help="Comma-separated or repeated K values.")
     parser.add_argument("--limit", "--max_samples", dest="limit", type=int)
     parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument("--retry", type=int, default=3)
     parser.add_argument("--env-file", default=".env")
     parser.add_argument("--no-question", action="store_true", help="Do not include the question text in PMSR query encoding.")
+    parser.add_argument("--describe", action="store_true", help="Describe the query image with the VLM before retrieval, matching PMSR step 0.")
+    parser.add_argument("--api-base", "--api_base", dest="api_base", default=None, help="OpenAI-compatible chat endpoint for --describe.")
+    parser.add_argument("--api-key", "--api_key", dest="api_key", default=None)
+    parser.add_argument("--model", default=None, help="VLM model name for --describe.")
+    parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument("--describe-max-tokens", type=int, default=128)
     return parser
 
 
@@ -252,10 +299,18 @@ def main() -> int:
     top_ks = parse_top_ks(args.top_ks)
     dataset = load_jsonl(args.data, limit=args.limit)
     retriever = build_pmsr_search(args)
-    scores = compute_recall(dataset, retriever, top_ks=top_ks, use_question=not args.no_question)
+    describer = build_describer(args)
+    scores = compute_recall(
+        dataset,
+        retriever,
+        top_ks=top_ks,
+        use_question=not args.no_question,
+        describer=describer,
+    )
 
     print("\n==== PMSR KB Recall ====")
     print(f"data: {args.data}")
+    print(f"describe: {bool(describer)}")
     print(f"total: {scores['total']}")
     print(f"errors: {scores['errors']}")
     for k in sorted(top_ks):
