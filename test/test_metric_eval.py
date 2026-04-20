@@ -180,6 +180,83 @@ class MetricEvalTest(unittest.TestCase):
         self.assertEqual(metric_eval.count_reasoning_records_from_prediction(prediction), 2)
         self.assertEqual(metric_eval.extract_last_reasoning_record_from_prediction(prediction), "Second.")
 
+    def test_iterative_recall_breakdown_uses_structured_record_results(self) -> None:
+        predictions = [
+            {
+                "entity_text": "Alpha",
+                "trajectory": {
+                    "records": [
+                        {
+                            "text_results": [{"title": "A", "text": "Alpha fact"}],
+                            "image_results": [],
+                            "reasoning": "r1",
+                        },
+                        {
+                            "text_results": [],
+                            "image_results": [{"caption": "Alpha image caption"}],
+                            "reasoning": "r2",
+                        },
+                    ]
+                },
+            },
+            {
+                "entity_text": "Beta",
+                "trajectory": {
+                    "records": [
+                        {
+                            "text_results": [{"title": "B", "text": "Other"}],
+                            "image_results": [],
+                            "reasoning": "r1",
+                        },
+                        {
+                            "text_results": [],
+                            "image_results": [{"caption": "Beta image caption"}],
+                            "reasoning": "r2",
+                        },
+                    ]
+                },
+            },
+        ]
+
+        summary = metric_eval.iterative_recall_breakdown(predictions)
+
+        self.assertEqual(len(summary), 2)
+        self.assertEqual(summary[0]["text_hits"], 1)
+        self.assertEqual(summary[0]["image_hits"], 0)
+        self.assertEqual(summary[0]["combined_hits"], 1)
+        self.assertEqual(summary[1]["text_hits"], 1)
+        self.assertEqual(summary[1]["image_hits"], 2)
+        self.assertEqual(summary[1]["combined_hits"], 2)
+        self.assertEqual(summary[1]["new_combined_hits"], 1)
+
+    def test_iterative_recall_breakdown_parses_legacy_flat_knowledge_runs(self) -> None:
+        predictions = [
+            {
+                "entity_text": "Alpha",
+                "trajectory": {
+                    "records": [{"reasoning": "r1"}, {"reasoning": "r2"}],
+                    "all_knowledge": (
+                        "Passage Title: T1\n"
+                        "Passage Text: Alpha text\n"
+                        "Passage: image miss\n"
+                        "Passage Title: T2\n"
+                        "Passage Text: miss\n"
+                        "Passage: Alpha image\n"
+                    ),
+                },
+            }
+        ]
+
+        summary = metric_eval.iterative_recall_breakdown(predictions)
+
+        self.assertEqual(len(summary), 2)
+        self.assertEqual(summary[0]["text_hits"], 1)
+        self.assertEqual(summary[0]["image_hits"], 0)
+        self.assertEqual(summary[0]["combined_hits"], 1)
+        self.assertEqual(summary[1]["text_hits"], 1)
+        self.assertEqual(summary[1]["image_hits"], 1)
+        self.assertEqual(summary[1]["combined_hits"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

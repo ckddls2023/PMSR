@@ -56,6 +56,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Evaluate only the first N predictions.",
     )
+    parser.add_argument(
+        "--iterative-recall",
+        action="store_true",
+        help="Print cumulative per-iteration recall and marginal gains.",
+    )
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args()
 
@@ -161,6 +166,97 @@ def _knowledge_text(prediction: dict[str, Any]) -> str:
                 if caption:
                     parts.append(caption)
     return "\n\n".join(parts)
+
+
+def _text_knowledge_from_record(record: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for passage in record.get("text_results") or []:
+        if not isinstance(passage, dict):
+            continue
+        title = str(passage.get("title") or "").strip()
+        text = str(passage.get("text") or "").strip()
+        entry = f"{title}\n{text}" if title and text and title != text else text or title
+        if entry:
+            parts.append(entry)
+    return "\n\n".join(parts)
+
+
+def _image_knowledge_from_record(record: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for pair in record.get("image_results") or []:
+        if not isinstance(pair, dict):
+            continue
+        caption = str(pair.get("caption") or "").strip()
+        if caption:
+            parts.append(caption)
+    return "\n\n".join(parts)
+
+
+def _legacy_knowledge_runs(knowledge: str) -> list[tuple[str, str]]:
+    blocks = re.split(r"(?=^Passage Title:|^Passage:)", str(knowledge or ""), flags=re.M)
+    runs: list[tuple[str, str]] = []
+    for block in blocks:
+        chunk = block.strip()
+        if not chunk:
+            continue
+        if chunk.startswith("Passage Title:"):
+            runs.append(("text", chunk))
+        elif chunk.startswith("Passage:"):
+            runs.append(("image", chunk))
+    return runs
+
+
+def _chunk_legacy_runs(runs: list[tuple[str, str]], steps: int) -> list[list[tuple[str, str]]]:
+    if not runs:
+        return [[] for _ in range(max(steps, 1))]
+    steps = max(steps, 1)
+    if len(runs) % steps == 0:
+        size = len(runs) // steps
+        return [runs[i * size : (i + 1) * size] for i in range(steps)]
+
+    chunks: list[list[tuple[str, str]]] = []
+    for i in range(steps):
+        start = round(i * len(runs) / steps)
+        end = round((i + 1) * len(runs) / steps)
+        chunks.append(runs[start:end])
+    return chunks
+
+
+def _iterative_knowledge_chunks(prediction: dict[str, Any]) -> list[dict[str, str]]:
+    records = _trajectory(prediction).get("records")
+    if isinstance(records, list) and any(
+        isinstance(record, dict) and (record.get("text_results") or record.get("image_results"))
+        for record in records
+    ):
+        chunks: list[dict[str, str]] = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            chunks.append(
+                {
+                    "text": _text_knowledge_from_record(record),
+                    "image": _image_knowledge_from_record(record),
+                }
+            )
+        return chunks
+
+    if isinstance(records, list) and records:
+        runs = _legacy_knowledge_runs(_knowledge_text(prediction))
+        grouped_runs = _chunk_legacy_runs(runs, len(records))
+        chunks = []
+        for run_group in grouped_runs:
+            text_parts = [chunk for kind, chunk in run_group if kind == "text"]
+            image_parts = [chunk for kind, chunk in run_group if kind == "image"]
+            chunks.append(
+                {
+                    "text": "\n\n".join(text_parts),
+                    "image": "\n\n".join(image_parts),
+                }
+            )
+        return chunks
+
+    knowledge = _knowledge_text(prediction)
+    return [{"text": knowledge, "image": ""}] if knowledge else []
 
 
 def _all_reasoning_text(prediction: dict[str, Any]) -> str:
@@ -409,6 +505,57 @@ def _recall_match(prediction: dict[str, Any], knowledge: str) -> bool:
     return any(_knowledge_match(target, knowledge) for target in _as_list(answer))
 
 
+def _normalized_recall_target_groups(prediction: dict[str, Any]) -> list[list[str]]:
+    entity_text = _maybe_literal(prediction.get("entity_text"))
+    groups: list[list[str]] = []
+
+    def add_value(value: Any, include_stripped: bool = False) -> None:
+        text = str(value).strip()
+        if not text:
+            return
+        if "|" in text:
+            parts = [preprocess_answer(part) for part in text.split("|") if part.strip()]
+            if parts:
+                groups.append(parts)
+            return
+        normalized = preprocess_answer(text)
+        if normalized:
+            groups.append([normalized])
+        if include_stripped:
+            stripped = preprocess_answer(_strip_accents(text))
+            if stripped and stripped != normalized:
+                groups.append([stripped])
+
+    if isinstance(entity_text, list):
+        for entity in entity_text:
+            add_value(entity, include_stripped=True)
+        return groups
+
+    if not _is_missing(entity_text):
+        add_value(entity_text)
+        return groups
+
+    for target in _reference_values(prediction):
+        if isinstance(target, dict):
+            continue
+        add_value(target)
+    if groups:
+        return groups
+
+    for target in _as_list(prediction.get("answer")):
+        add_value(target)
+    return groups
+
+
+def _normalized_recall_match(target_groups: list[list[str]], normalized_knowledge: str) -> bool:
+    if not normalized_knowledge:
+        return False
+    for group in target_groups:
+        if group and all(target in normalized_knowledge for target in group):
+            return True
+    return False
+
+
 def evaluate_recall(
     predictions: list[dict[str, Any]],
     args: argparse.Namespace | None = None,
@@ -418,6 +565,114 @@ def evaluate_recall(
         knowledge = _knowledge_text(pred)
         flags.append(_recall_match(pred, knowledge) if knowledge else False)
     return _score(flags), flags
+
+
+def iterative_recall_breakdown(predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    max_steps = 0
+    chunked_predictions: list[list[dict[str, str]]] = []
+    target_groups: list[list[list[str]]] = []
+    for pred in predictions:
+        chunks = _iterative_knowledge_chunks(pred)
+        chunked_predictions.append(chunks)
+        target_groups.append(_normalized_recall_target_groups(pred))
+        max_steps = max(max_steps, len(chunks))
+
+    summary: list[dict[str, Any]] = []
+    cumulative_text_hits = [False] * len(predictions)
+    cumulative_image_hits = [False] * len(predictions)
+    cumulative_combined_hits = [False] * len(predictions)
+    cumulative_text_knowledge = [""] * len(predictions)
+    cumulative_image_knowledge = [""] * len(predictions)
+
+    for step in range(max_steps):
+        new_text_hits = 0
+        new_image_hits = 0
+        new_combined_hits = 0
+        for idx, pred in enumerate(predictions):
+            chunks = chunked_predictions[idx]
+            if step < len(chunks):
+                text_chunk = preprocess_answer(chunks[step].get("text") or "")
+                image_chunk = preprocess_answer(chunks[step].get("image") or "")
+                if text_chunk:
+                    cumulative_text_knowledge[idx] = (
+                        f"{cumulative_text_knowledge[idx]} {text_chunk}".strip()
+                        if cumulative_text_knowledge[idx]
+                        else text_chunk
+                    )
+                if image_chunk:
+                    cumulative_image_knowledge[idx] = (
+                        f"{cumulative_image_knowledge[idx]} {image_chunk}".strip()
+                        if cumulative_image_knowledge[idx]
+                        else image_chunk
+                    )
+
+            text_hit = (
+                _normalized_recall_match(target_groups[idx], cumulative_text_knowledge[idx])
+                if cumulative_text_knowledge[idx]
+                else False
+            )
+            image_hit = (
+                _normalized_recall_match(target_groups[idx], cumulative_image_knowledge[idx])
+                if cumulative_image_knowledge[idx]
+                else False
+            )
+            combined_knowledge = " ".join(
+                part for part in (cumulative_text_knowledge[idx], cumulative_image_knowledge[idx]) if part
+            )
+            combined_hit = (
+                _normalized_recall_match(target_groups[idx], combined_knowledge)
+                if combined_knowledge
+                else False
+            )
+
+            if text_hit and not cumulative_text_hits[idx]:
+                new_text_hits += 1
+            if image_hit and not cumulative_image_hits[idx]:
+                new_image_hits += 1
+            if combined_hit and not cumulative_combined_hits[idx]:
+                new_combined_hits += 1
+
+            cumulative_text_hits[idx] = text_hit
+            cumulative_image_hits[idx] = image_hit
+            cumulative_combined_hits[idx] = combined_hit
+
+        total = len(predictions)
+        summary.append(
+            {
+                "step": step,
+                "text_hits": sum(cumulative_text_hits),
+                "image_hits": sum(cumulative_image_hits),
+                "combined_hits": sum(cumulative_combined_hits),
+                "text_recall": _score(cumulative_text_hits),
+                "image_recall": _score(cumulative_image_hits),
+                "combined_recall": _score(cumulative_combined_hits),
+                "new_text_hits": new_text_hits,
+                "new_image_hits": new_image_hits,
+                "new_combined_hits": new_combined_hits,
+                "new_text_recall": new_text_hits / total if total else 0.0,
+                "new_image_recall": new_image_hits / total if total else 0.0,
+                "new_combined_recall": new_combined_hits / total if total else 0.0,
+            }
+        )
+    return summary
+
+
+def _print_iterative_recall(summary: list[dict[str, Any]]) -> None:
+    if not summary:
+        print("Iterative recall: no stepwise knowledge available.")
+        return
+    print("Iterative Recall:")
+    print("step\ttext\timage\tcombined\tnew_text\tnew_image\tnew_combined")
+    for row in summary:
+        print(
+            f"{row['step']}\t"
+            f"{row['text_recall']:.2%} ({row['text_hits']})\t"
+            f"{row['image_recall']:.2%} ({row['image_hits']})\t"
+            f"{row['combined_recall']:.2%} ({row['combined_hits']})\t"
+            f"{row['new_text_recall']:.2%} ({row['new_text_hits']})\t"
+            f"{row['new_image_recall']:.2%} ({row['new_image_hits']})\t"
+            f"{row['new_combined_recall']:.2%} ({row['new_combined_hits']})"
+        )
 
 
 def _score(flags: list[bool]) -> float:
@@ -462,6 +717,9 @@ def main() -> int:
     nonzero_counts = [count for count in record_counts if count > 0]
     if nonzero_counts:
         print(f"Average reasoning records: {sum(nonzero_counts) / len(nonzero_counts):.2f}")
+
+    if args.iterative_recall:
+        _print_iterative_recall(iterative_recall_breakdown(predictions))
 
     if args.verbose:
         _print_verbose_failures(predictions, accuracy_flags)
