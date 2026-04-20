@@ -188,11 +188,12 @@ class PMSRAgentQueryTest(unittest.TestCase):
 
     def test_trajectory_level_query_transforms_accumulated_reasoning_with_vlm(self) -> None:
         agent = make_agent()
-        captured: dict[str, str] = {}
+        captured: dict[str, object] = {}
 
-        def fake_generate(self: PMSRAgent, image_path: str, prompt: str, image_text_pairs=None, text_passages=None) -> str:
+        def fake_generate(self: PMSRAgent, image_path: str, prompt: str, image_text_pairs=None, text_passages=None, extra_body=None) -> str:
             captured["image_path"] = image_path
             captured["prompt"] = prompt
+            captured["extra_body"] = extra_body
             return '{"analysis": "Need plant usage.", "question": "Smilax bona-nox medical uses"}'
 
         agent._generate = MethodType(fake_generate, agent)
@@ -208,11 +209,15 @@ class PMSRAgentQueryTest(unittest.TestCase):
         self.assertIn("Generate more accurate question", captured["prompt"])
         self.assertIn('"analysis"', captured["prompt"])
         self.assertIn('"question"', captured["prompt"])
+        guided_json = captured["extra_body"]["guided_json"]  # type: ignore[index]
+        self.assertEqual(set(guided_json["required"]), {"analysis", "question"})
+        self.assertEqual(guided_json["properties"]["analysis"]["type"], "string")
+        self.assertEqual(guided_json["properties"]["question"]["type"], "string")
 
     def test_trajectory_level_query_falls_back_to_legacy_question_format(self) -> None:
         agent = make_agent()
 
-        def fake_generate(self: PMSRAgent, image_path: str, prompt: str, image_text_pairs=None, text_passages=None) -> str:
+        def fake_generate(self: PMSRAgent, image_path: str, prompt: str, image_text_pairs=None, text_passages=None, extra_body=None) -> str:
             return "## Analysis\nNeed plant usage.\n## Output\nQuestion: Smilax bona-nox medical uses"
 
         agent._generate = MethodType(fake_generate, agent)
@@ -271,7 +276,7 @@ class PMSRAgentQueryTest(unittest.TestCase):
         def fake_build_record_level_query(self: PMSRAgent, traj: Trajectory) -> str:
             return "local query"
 
-        def fake_generate(self: PMSRAgent, image_path: str, prompt: str, image_text_pairs=None, text_passages=None) -> str:
+        def fake_generate(self: PMSRAgent, image_path: str, prompt: str, image_text_pairs=None, text_passages=None, extra_body=None) -> str:
             return "I cannot produce a better query."
 
         def fake_retrieve_text(self: PMSRAgent, query: str, top_k: int):

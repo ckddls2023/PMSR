@@ -7,6 +7,8 @@ import time
 import re
 from typing import Any
 
+from pydantic import BaseModel
+
 from agents.base_agent import AgentConfig, BaseAgent
 from agents.schemas import Evidence, Record, SearchResult, Trajectory
 from api.openai import OpenAICompatibleClient, build_pmsr_user_message
@@ -26,6 +28,11 @@ _GLOBAL_QUERY_PROMPT = (
     "{{\"analysis\": \"analysis query and correct knowledge to search more accurately\", "
     "\"question\": \"context-specific new question\"}}\n"
 )
+
+
+class TrajectoryQueryResponse(BaseModel):
+    analysis: str
+    question: str
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +160,11 @@ class PMSRAgent(BaseAgent):
         knowledge = traj.all_reasoning() or traj.latest_reasoning()
         prompt = _GLOBAL_QUERY_PROMPT.format(question=traj.question, knowledge=knowledge)
         try:
-            raw_query = self._generate(traj.image_path, prompt)
+            raw_query = self._generate(
+                traj.image_path,
+                prompt,
+                extra_body={"guided_json": TrajectoryQueryResponse.model_json_schema()},
+            )
         except Exception as exc:
             if self.config.verbose:
                 print(f"[PMSRAgent] global query transformation failed: {exc}")
@@ -173,6 +184,7 @@ class PMSRAgent(BaseAgent):
         prompt: str,
         image_text_pairs: list[Any] | None = None,
         text_passages: list[Any] | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> str:
         user_msg = build_pmsr_user_message(
             image_path=image_path or None,
@@ -180,6 +192,8 @@ class PMSRAgent(BaseAgent):
             image_text_pairs=image_text_pairs,
             text_passages=text_passages,
         )
+        if extra_body:
+            return self._vlm.chat([user_msg], extra_body=extra_body)["content"]
         return self._vlm.chat([user_msg])["content"]
 
     def _describe_image(self, image_path: str, question: str) -> str:

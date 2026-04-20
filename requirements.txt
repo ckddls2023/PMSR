@@ -2,6 +2,7 @@
 requests>=2.32.0
 numpy>=2.0.0
 tqdm>=4.66.0
+pydantic>=2.0.0
 
 # FAISS knowledge-base search
 # For GPU FAISS, install the matching CUDA build separately if needed.
