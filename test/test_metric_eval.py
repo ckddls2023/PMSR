@@ -109,6 +109,48 @@ class MetricEvalTest(unittest.TestCase):
         self.assertEqual(flags, [True, False])
         self.assertEqual(accuracy, 0.5)
 
+    def test_evaluate_accuracy_matches_legacy_label_prefix_logic(self) -> None:
+        predictions = [
+            {
+                "label": "B",
+                "trajectory": {"final_answer": "B: Paris"},
+                "answer": ["France"],
+            }
+        ]
+
+        accuracy, flags = metric_eval.evaluate_accuracy(predictions)
+
+        self.assertEqual(flags, [True])
+        self.assertEqual(accuracy, 1.0)
+
+    def test_evaluate_accuracy_matches_legacy_numeric_tolerance_when_answer_eval_empty(self) -> None:
+        predictions = [
+            {
+                "trajectory": {"final_answer": "The bridge is about 237 metres long."},
+                "answer": ["240"],
+                "answer_eval": "",
+            }
+        ]
+
+        accuracy, flags = metric_eval.evaluate_accuracy(predictions)
+
+        self.assertEqual(flags, [True])
+        self.assertEqual(accuracy, 1.0)
+
+    def test_evaluate_accuracy_matches_legacy_numeric_branch_overwriting_substring_hits(self) -> None:
+        predictions = [
+            {
+                "trajectory": {"final_answer": "The hill is 90 feet above sea level."},
+                "answer": ["10"],
+                "answer_eval": "",
+            }
+        ]
+
+        accuracy, flags = metric_eval.evaluate_accuracy(predictions)
+
+        self.assertEqual(flags, [False])
+        self.assertEqual(accuracy, 0.0)
+
     def test_evaluate_accuracy_uses_bem_when_requested(self) -> None:
         predictions = [
             {

@@ -326,6 +326,15 @@ def _reference_values(prediction: dict[str, Any]) -> list[Any]:
     return []
 
 
+def _prediction_value(prediction: dict[str, Any], key: str) -> Any:
+    if key in prediction:
+        return prediction.get(key)
+    input_row = prediction.get("input")
+    if isinstance(input_row, dict):
+        return input_row.get(key)
+    return None
+
+
 def _range_match(range_spec: dict[str, Any], prediction_text: str) -> bool:
     bounds = range_spec.get("range")
     if not isinstance(bounds, list) or len(bounds) != 2:
@@ -376,18 +385,90 @@ def _text_match(reference: Any, prediction_text: str) -> bool:
     return normalized_reference in normalized_prediction
 
 
-def evaluate_cem_accuracy(predictions: list[dict[str, Any]]) -> tuple[float, list[bool]]:
-    flags: list[bool] = []
-    for pred in predictions:
-        if isinstance(pred.get("answer_eval"), bool):
-            flags.append(bool(pred["answer_eval"]))
+def _clean_legacy_prediction_text(prediction_text: str) -> str:
+    text = str(prediction_text or "").replace("Passage:", "")
+    return re.sub(r"Passage #\d+", "", text)
+
+
+def _numeric_tolerance_result(answer: Any, prediction_text: str) -> bool | None:
+    try:
+        answer_value = float(answer)
+    except (TypeError, ValueError):
+        return None
+
+    for raw_number in re.findall(r"[-+]?\d*\.\d+|[-+]?\d+", prediction_text):
+        try:
+            number = float(raw_number)
+        except ValueError:
             continue
-        prediction_text = _prediction_text(pred)
-        references = _reference_values(pred)
-        if references:
-            flags.append(any(_text_match(reference, prediction_text) for reference in references))
-        else:
-            flags.append(False)
+        if abs(number - answer_value) <= 0.1 * answer_value:
+            return True
+    return False
+
+
+def _legacy_answer_fields(prediction: dict[str, Any]) -> tuple[Any, Any, Any]:
+    label = _prediction_value(prediction, "label")
+    answer = _maybe_literal(_prediction_value(prediction, "answer"))
+    ans_eval = _maybe_literal(_prediction_value(prediction, "answer_eval"))
+
+    if _is_missing(answer):
+        answer = _maybe_literal(_prediction_value(prediction, "gold_answer"))
+    if _is_missing(ans_eval):
+        ans_eval = ""
+    return label, answer, ans_eval
+
+
+def _legacy_cem_match(prediction: dict[str, Any]) -> bool:
+    if isinstance(prediction.get("answer_eval"), bool):
+        return bool(prediction["answer_eval"])
+
+    prediction_text = _clean_legacy_prediction_text(_prediction_text(prediction))
+    prediction_lower = prediction_text.lower()
+    label, answer, ans_eval = _legacy_answer_fields(prediction)
+    is_correct = False
+
+    if label not in (None, ""):
+        label_text = str(label)
+        if label_text == prediction_text[: len(label_text)] or f"{label_text}:" in prediction_text:
+            is_correct = True
+
+    if isinstance(ans_eval, dict) and "range" in ans_eval and _range_match(ans_eval, prediction_text):
+        is_correct = True
+
+    if isinstance(ans_eval, list):
+        for ans in ans_eval:
+            if str(ans).lower() in prediction_lower:
+                is_correct = True
+
+    if isinstance(answer, list):
+        for ans in answer:
+            if isinstance(ans, dict):
+                continue
+            if isinstance(ans, str) and "&&" in ans:
+                sub_answers = [part for part in ans.split("&&") if part.strip()]
+                if sub_answers:
+                    hits = sum(preprocess_answer(part) in prediction_lower for part in sub_answers)
+                    if hits / len(sub_answers) > 0.5:
+                        return True
+
+            if str(ans).lower() in prediction_lower:
+                is_correct = True
+
+            if ans_eval == "":
+                numeric_match = _numeric_tolerance_result(ans, prediction_text)
+                if numeric_match is not None:
+                    is_correct = numeric_match
+        return is_correct
+
+    if isinstance(answer, str) and answer:
+        if answer.lower() in prediction_lower:
+            is_correct = True
+
+    return is_correct
+
+
+def evaluate_cem_accuracy(predictions: list[dict[str, Any]]) -> tuple[float, list[bool]]:
+    flags = [_legacy_cem_match(pred) for pred in predictions]
     return _score(flags), flags
 
 
