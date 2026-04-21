@@ -106,7 +106,7 @@ Cache Google Image Search results into the PMSR `searched_results.google_image` 
 python scripts/cache_google_image_search.py \
   --jsonl data/fvqa_test.jsonl \
   --output data/fvqa_test_pmsr_cache.jsonl \
-  --top-k 5
+  --top-k 10
 ```
 
 The cache script resumes by default when the output file already exists. Use `--limit 10` for a smoke test, or `--refresh` when you intentionally want to fetch results again for rows that already have cached image-search results.
@@ -129,9 +129,9 @@ python eval/main.py \
 Use the same cache-first pattern for the other open-web datasets:
 
 ```bash
-python scripts/cache_google_image_search.py --jsonl data/MMSearch_end2end.jsonl --output data/MMSearch_end2end_pmsr_cache.jsonl --top-k 5
-python scripts/cache_google_image_search.py --jsonl data/LiveVQA_test.jsonl --output data/LiveVQA_test_pmsr_cache.jsonl --top-k 5
-python scripts/cache_google_image_search.py --jsonl data/InfoSeek_human_2k.jsonl --output data/InfoSeek_human_2k_pmsr_cache.jsonl --top-k 5
+python scripts/cache_google_image_search.py --jsonl data/MMSearch_end2end.jsonl --output data/MMSearch_end2end_pmsr_cache.jsonl --top-k 10
+python scripts/cache_google_image_search.py --jsonl data/LiveVQA_test.jsonl --output data/LiveVQA_test_pmsr_cache.jsonl --top-k 10
+python scripts/cache_google_image_search.py --jsonl data/InfoSeek_human_2k.jsonl --output data/InfoSeek_human_2k_pmsr_cache.jsonl --top-k 10
 ```
 
 Then evaluate each cached file with `--web-search`. This flag overrides `TEXT_KB` from `.env`, so these runs use live web search for text evidence while still using the cached Google Image Search results and the configured PMSR or MLLM image-text retriever.

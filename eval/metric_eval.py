@@ -385,11 +385,6 @@ def _text_match(reference: Any, prediction_text: str) -> bool:
     return normalized_reference in normalized_prediction
 
 
-def _clean_legacy_prediction_text(prediction_text: str) -> str:
-    text = str(prediction_text or "").replace("Passage:", "")
-    return re.sub(r"Passage #\d+", "", text)
-
-
 def _numeric_tolerance_result(answer: Any, prediction_text: str) -> bool | None:
     try:
         answer_value = float(answer)
@@ -422,7 +417,7 @@ def _cem_match(prediction: dict[str, Any]) -> bool:
     if isinstance(prediction.get("answer_eval"), bool):
         return bool(prediction["answer_eval"])
 
-    prediction_text = _clean_legacy_prediction_text(_prediction_text(prediction))
+    prediction_text = _prediction_text(prediction)
     prediction_lower = prediction_text.lower()
     label, answer, ans_eval = _answer_fields(prediction)
     is_correct = False
