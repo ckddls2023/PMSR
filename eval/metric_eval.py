@@ -406,7 +406,7 @@ def _numeric_tolerance_result(answer: Any, prediction_text: str) -> bool | None:
     return False
 
 
-def _legacy_answer_fields(prediction: dict[str, Any]) -> tuple[Any, Any, Any]:
+def _answer_fields(prediction: dict[str, Any]) -> tuple[Any, Any, Any]:
     label = _prediction_value(prediction, "label")
     answer = _maybe_literal(_prediction_value(prediction, "answer"))
     ans_eval = _maybe_literal(_prediction_value(prediction, "answer_eval"))
@@ -418,13 +418,13 @@ def _legacy_answer_fields(prediction: dict[str, Any]) -> tuple[Any, Any, Any]:
     return label, answer, ans_eval
 
 
-def _legacy_cem_match(prediction: dict[str, Any]) -> bool:
+def _cem_match(prediction: dict[str, Any]) -> bool:
     if isinstance(prediction.get("answer_eval"), bool):
         return bool(prediction["answer_eval"])
 
     prediction_text = _clean_legacy_prediction_text(_prediction_text(prediction))
     prediction_lower = prediction_text.lower()
-    label, answer, ans_eval = _legacy_answer_fields(prediction)
+    label, answer, ans_eval = _answer_fields(prediction)
     is_correct = False
 
     if label not in (None, ""):
@@ -468,7 +468,7 @@ def _legacy_cem_match(prediction: dict[str, Any]) -> bool:
 
 
 def evaluate_cem_accuracy(predictions: list[dict[str, Any]]) -> tuple[float, list[bool]]:
-    flags = [_legacy_cem_match(pred) for pred in predictions]
+    flags = [_cem_match(pred) for pred in predictions]
     return _score(flags), flags
 
 
