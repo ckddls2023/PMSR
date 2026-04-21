@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 from agents.schemas import Evidence, Record, SearchResult, Trajectory
 from eval.main import (
     _eval_answer,
+    _record_id,
     build_config_from_args,
     build_output_path,
     maybe_merge_chunk_outputs,
@@ -277,6 +278,14 @@ class EvalMainTest(unittest.TestCase):
             [row["question_id"] for row in slice_chunk(rows, chunk_id=1, num_chunks=10)],
             ["q1", "q11"],
         )
+
+    def test_record_id_uses_dataset_image_ids_for_input_rows(self) -> None:
+        row = {
+            "dataset_image_ids": "2715027",
+            "image_path": "/tmp/example.jpg",
+        }
+
+        self.assertEqual(_record_id(row), "2715027")
 
     def test_maybe_merge_chunk_outputs_merges_when_all_chunks_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

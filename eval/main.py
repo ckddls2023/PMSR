@@ -63,7 +63,12 @@ def save_jsonl(path: str | Path, records: list[dict[str, Any]]) -> None:
 
 
 def _record_id(record: dict[str, Any]) -> Any:
-    return record.get("question_id") or record.get("image_path")
+    return (
+        record.get("question_id")
+        or record.get("dataset_image_ids")
+        or record.get("image_id")
+        or record.get("image_path")
+    )
 
 
 def slice_chunk(rows: list[dict[str, Any]], *, chunk_id: int, num_chunks: int = 10) -> list[dict[str, Any]]:
@@ -455,12 +460,12 @@ def main() -> int:
     existing_ids: set[Any] = set()
     if output_path.exists():
         predictions = load_jsonl(output_path)
-        existing_ids = {p.get("question_id") or p.get("image_path") for p in predictions} - {None}
+        existing_ids = {_record_id(p) for p in predictions} - {None}
         if args.verbose:
             print(f"Resuming from {len(predictions)} existing predictions")
 
     for i, item in enumerate(data):
-        qid = item.get("question_id") or item.get("image_path")
+        qid = _record_id(item)
         if qid in existing_ids:
             continue
 
