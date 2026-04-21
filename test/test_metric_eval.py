@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import numpy as np
 import sys
 import tempfile
 import unittest
@@ -127,6 +128,29 @@ class MetricEvalTest(unittest.TestCase):
         run_bem.assert_called_once_with("Where?", "France", "It is in Paris.")
         self.assertEqual(flags, [True])
         self.assertEqual(accuracy, 1.0)
+
+    def test_evaluate_bem_tries_joined_references_before_sub_answers(self) -> None:
+        predictions = [
+            {
+                "question": "Where?",
+                "trajectory": {"final_answer": "It is in Paris."},
+                "answer_eval": ["France", "French Republic"],
+            }
+        ]
+
+        with patch.object(metric_eval, "initialize_bem_model_and_transformers") as init, patch.object(
+            metric_eval, "run_bem_evaluation", return_value=True
+        ) as run_bem:
+            accuracy, flags = metric_eval.evaluate_bem_accuracy(predictions)
+
+        init.assert_called_once()
+        run_bem.assert_called_once_with("Where?", "France,French Republic", "It is in Paris.")
+        self.assertEqual(flags, [True])
+        self.assertEqual(accuracy, 1.0)
+
+    def test_flatten_token_array_handles_scalar_and_vector(self) -> None:
+        self.assertEqual(metric_eval._flatten_token_array(np.array(7)).tolist(), [7])
+        self.assertEqual(metric_eval._flatten_token_array(np.array([[1, 2, 3]])).tolist(), [1, 2, 3])
 
     def test_evaluate_recall_uses_entity_text_against_knowledge(self) -> None:
         predictions = [

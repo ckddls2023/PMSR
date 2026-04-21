@@ -62,6 +62,14 @@ def save_jsonl(path: str | Path, records: list[dict[str, Any]]) -> None:
             handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
+def _record_id(record: dict[str, Any]) -> Any:
+    return record.get("question_id") or record.get("image_path")
+
+
+def slice_chunk(rows: list[dict[str, Any]], *, chunk_id: int, num_chunks: int = 10) -> list[dict[str, Any]]:
+    return [row for index, row in enumerate(rows) if index % num_chunks == chunk_id]
+
+
 # ---------------------------------------------------------------------------
 # Config builder
 # ---------------------------------------------------------------------------
@@ -187,7 +195,7 @@ def _clean_data_name(data_path: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", Path(data_path).stem)
 
 
-def build_output_path(args: argparse.Namespace, config: AgentConfig) -> Path:
+def build_base_output_path(args: argparse.Namespace, config: AgentConfig) -> Path:
     output_dir = Path(args.output_dir or ROOT / "outputs")
     stem = _clean_data_name(str(args.data))
     model_stem = _clean_model_name(config.model)
@@ -206,6 +214,46 @@ def build_output_path(args: argparse.Namespace, config: AgentConfig) -> Path:
     if not config.use_traj_query:
         stem += "_without_ask"
     return output_dir / f"{stem}.jsonl"
+
+
+def build_output_path(args: argparse.Namespace, config: AgentConfig) -> Path:
+    base_path = build_base_output_path(args, config)
+    chunk_id = getattr(args, "chunk_id", None)
+    if chunk_id is None:
+        return base_path
+    return base_path.with_name(f"{base_path.stem}_chunk_{chunk_id}{base_path.suffix}")
+
+
+def maybe_merge_chunk_outputs(
+    base_output_path: Path,
+    expected_items: list[dict[str, Any]],
+    *,
+    num_chunks: int = 10,
+) -> Path | None:
+    chunk_paths = [
+        base_output_path.with_name(f"{base_output_path.stem}_chunk_{chunk_id}{base_output_path.suffix}")
+        for chunk_id in range(num_chunks)
+    ]
+    if not all(path.exists() for path in chunk_paths):
+        return None
+
+    merged_by_id: dict[Any, dict[str, Any]] = {}
+    for path in chunk_paths:
+        for prediction in load_jsonl(path):
+            prediction_id = _record_id(prediction)
+            if prediction_id in merged_by_id:
+                return None
+            merged_by_id[prediction_id] = prediction
+
+    expected_ids = [_record_id(item) for item in expected_items]
+    if any(identifier is None for identifier in expected_ids):
+        return None
+    if set(merged_by_id) != set(expected_ids):
+        return None
+
+    merged_predictions = [merged_by_id[identifier] for identifier in expected_ids]
+    save_jsonl(base_output_path, merged_predictions)
+    return base_output_path
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +362,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--output-dir", dest="output_dir", default=None)
     parser.add_argument("--env-file", dest="env_file", default=".env")
+    parser.add_argument("--chunk-id", dest="chunk_id", type=int, choices=range(10), default=None)
 
     # Model / VLM
     parser.add_argument("--model", default=os.getenv("MODEL", "Qwen/Qwen3.5-9B"))
@@ -383,11 +432,16 @@ def main() -> int:
     load_env_file(args.env_file)
 
     data = load_jsonl(args.data, limit=args.limit)
+    full_data = data
+    if args.chunk_id is not None:
+        data = slice_chunk(full_data, chunk_id=args.chunk_id)
     if args.verbose:
-        print(f"Loaded {len(data)} items from {args.data}")
+        chunk_message = f" (chunk {args.chunk_id})" if args.chunk_id is not None else ""
+        print(f"Loaded {len(data)} items from {args.data}{chunk_message}")
 
     config = build_config_from_args(args)
     agent = PMSRAgent(config)
+    base_output_path = build_base_output_path(args, config)
     output_path = build_output_path(args, config)
 
     if args.verbose:
@@ -436,17 +490,27 @@ def main() -> int:
 
     save_jsonl(output_path, predictions)
 
-    acc, _ = evaluate_accuracy(predictions, args)
+    eval_path = output_path
+    eval_predictions = predictions
+    if args.chunk_id is not None:
+        merged_path = maybe_merge_chunk_outputs(base_output_path, full_data)
+        if merged_path is not None:
+            eval_path = merged_path
+            eval_predictions = load_jsonl(merged_path)
+            if args.verbose:
+                print(f"Merged complete chunk set into {merged_path}")
+
+    acc, _ = evaluate_accuracy(eval_predictions, args)
     acc_label = "Accuracy (BEM)" if args.bem else "Accuracy (CEM)"
-    ret, _ = evaluate_recall(predictions, args)
+    ret, _ = evaluate_recall(eval_predictions, args)
 
     print("\n==== Results ====")
     print(f"Data:     {args.data}")
     print(f"Model:    {config.model}")
-    print(f"Items:    {len(predictions)}")
-    print(f"{acc_label}: {acc:.4f}  ({int(acc * len(predictions))}/{len(predictions)})")
+    print(f"Items:    {len(eval_predictions)}")
+    print(f"{acc_label}: {acc:.4f}  ({int(acc * len(eval_predictions))}/{len(eval_predictions)})")
     print(f"Retrieval recall: {ret:.4f}")
-    print(f"Output:   {output_path}")
+    print(f"Output:   {eval_path}")
     return 0
 
 

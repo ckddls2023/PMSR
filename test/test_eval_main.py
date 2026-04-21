@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,7 +13,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agents.schemas import Evidence, Record, SearchResult, Trajectory
-from eval.main import _eval_answer, build_config_from_args, build_output_path, output_from_trajectory
+from eval.main import (
+    _eval_answer,
+    build_config_from_args,
+    build_output_path,
+    maybe_merge_chunk_outputs,
+    output_from_trajectory,
+    slice_chunk,
+)
 
 
 class EvalMainTest(unittest.TestCase):
@@ -238,6 +247,82 @@ class EvalMainTest(unittest.TestCase):
         self.assertFalse(config.use_traj_query)
         self.assertIn("EVQA_test_qwen3-vl-8b-instruct_iter3_topk10", output_path.name)
         self.assertTrue(output_path.name.endswith("_without_ask.jsonl"))
+
+    def test_parser_chunk_id_adds_chunk_suffix_to_output(self) -> None:
+        from eval.main import build_parser
+
+        args = build_parser().parse_args(
+            [
+                "--data",
+                "data/EVQA_test.jsonl",
+                "--model",
+                "Qwen/Qwen3.5-9B",
+                "--chunk-id",
+                "3",
+            ]
+        )
+        config = build_config_from_args(args)
+        output_path = build_output_path(args, config)
+
+        self.assertEqual(args.chunk_id, 3)
+        self.assertTrue(output_path.name.endswith("_chunk_3.jsonl"))
+
+    def test_slice_chunk_uses_stable_modulo_partition(self) -> None:
+        rows = [{"question_id": f"q{i}"} for i in range(12)]
+
+        chunk = slice_chunk(rows, chunk_id=3, num_chunks=10)
+
+        self.assertEqual([row["question_id"] for row in chunk], ["q3"])
+        self.assertEqual(
+            [row["question_id"] for row in slice_chunk(rows, chunk_id=1, num_chunks=10)],
+            ["q1", "q11"],
+        )
+
+    def test_maybe_merge_chunk_outputs_merges_when_all_chunks_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            base_path = output_dir / "EVQA_test_Qwen3-VL-8B_iter4_topk10_text_pmsr.jsonl"
+            expected_items = [{"question_id": f"q{i}", "image_path": f"/tmp/{i}.jpg"} for i in range(20)]
+
+            for chunk_id in range(10):
+                chunk_path = output_dir / f"EVQA_test_Qwen3-VL-8B_iter4_topk10_text_pmsr_chunk_{chunk_id}.jsonl"
+                chunk_predictions = []
+                for index, item in enumerate(expected_items):
+                    if index % 10 != chunk_id:
+                        continue
+                    chunk_predictions.append(
+                        {
+                            "question_id": item["question_id"],
+                            "image_path": item["image_path"],
+                            "trajectory": {"final_answer": item["question_id"]},
+                        }
+                    )
+                with chunk_path.open("w", encoding="utf-8") as handle:
+                    for record in chunk_predictions:
+                        handle.write(json.dumps(record) + "\n")
+
+            merged_path = maybe_merge_chunk_outputs(base_path, expected_items)
+
+            self.assertEqual(merged_path, base_path)
+            self.assertTrue(base_path.exists())
+            with base_path.open("r", encoding="utf-8") as handle:
+                merged_rows = [json.loads(line) for line in handle]
+            self.assertEqual([row["question_id"] for row in merged_rows], [f"q{i}" for i in range(20)])
+
+    def test_maybe_merge_chunk_outputs_skips_until_all_chunks_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            base_path = output_dir / "EVQA_test_Qwen3-VL-8B_iter4_topk10_text_pmsr.jsonl"
+            expected_items = [{"question_id": f"q{i}", "image_path": f"/tmp/{i}.jpg"} for i in range(10)]
+
+            for chunk_id in range(9):
+                chunk_path = output_dir / f"EVQA_test_Qwen3-VL-8B_iter4_topk10_text_pmsr_chunk_{chunk_id}.jsonl"
+                chunk_path.write_text("", encoding="utf-8")
+
+            merged_path = maybe_merge_chunk_outputs(base_path, expected_items)
+
+            self.assertIsNone(merged_path)
+            self.assertFalse(base_path.exists())
 
     def test_web_search_flag_overrides_text_kb_with_ollama_web_search(self) -> None:
         from eval.main import build_parser

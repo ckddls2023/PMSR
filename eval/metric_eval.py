@@ -14,6 +14,7 @@ import json
 import re
 import string
 import unicodedata
+import numpy as np
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ _BEM_VOCAB_PATH = (
     "gs://cloud-tpu-checkpoints/bert/keras_bert/uncased_L-12_H-768_A-12/vocab.txt"
 )
 _BEM_MODEL_PATH = "https://tfhub.dev/google/answer_equivalence/bem/1"
+_BEM_MAX_TOKENS = 512
 
 _PUNCTUATION = string.punctuation + "‘’´`_"
 _DIGIT_MAP = {
@@ -426,13 +428,27 @@ def initialize_bem_model_and_transformers() -> None:
     print("BEM model and tokenizer initialized successfully.")
 
 
-def run_bem_evaluation(question: str, reference: str, candidate: str) -> bool:
+def _squeeze_token_array(value: Any) -> Any:
+    import numpy as np
+
+    array = value.numpy()
+    if array.ndim > 1:
+        array = np.squeeze(array)
+    return array
+
+
+def _flatten_token_array(value: Any) -> Any:
+    import numpy as np
+
+    return np.asarray(value).reshape(-1)
+
+
+def run_bem_evaluation(question: str, reference: str, candidate: str, *, verbose: bool = False) -> bool:
     """Run strict TensorFlow BEM answer-equivalence checking for one pair."""
     global bem_tokenizer, bem_model, bem_cls_id, bem_sep_id
     if not all([bem_tokenizer, bem_model, bem_cls_id is not None, bem_sep_id is not None]):
         raise RuntimeError("BEM components are not initialized.")
 
-    import numpy as np
     import scipy.special
     import tensorflow_text as text
 
@@ -453,18 +469,18 @@ def run_bem_evaluation(question: str, reference: str, candidate: str) -> bool:
         (candidate_tokens, reference_tokens, question_tokens), bem_cls_id, bem_sep_id
     )
 
-    def pad(array: np.ndarray, length: int = 512) -> np.ndarray:
+    def pad(array: np.ndarray, length: int = _BEM_MAX_TOKENS) -> np.ndarray:
         current_length = array.shape[-1]
         if current_length >= length:
-            return array[:length]
+            return array[-length:]
         return np.append(array, np.zeros(length - current_length, np.int32))
 
     input_ids_array = input_ids.numpy()
     segment_ids_array = segment_ids.numpy()
-    if input_ids_array.ndim > 1:
-        input_ids_array = np.squeeze(input_ids_array)
-    if segment_ids_array.ndim > 1:
-        segment_ids_array = np.squeeze(segment_ids_array)
+    input_ids_array = _flatten_token_array(input_ids_array)
+    segment_ids_array = _flatten_token_array(segment_ids_array)
+    if verbose and len(input_ids_array) > _BEM_MAX_TOKENS:
+        print(f"[BEM] truncated combined sequence {len(input_ids_array)}->{_BEM_MAX_TOKENS}")
 
     inputs = {
         "input_ids": np.expand_dims(pad(input_ids_array), 0),
@@ -475,18 +491,38 @@ def run_bem_evaluation(question: str, reference: str, candidate: str) -> bool:
     return bool(bem_score >= 0.5)
 
 
-def evaluate_bem_accuracy(predictions: list[dict[str, Any]]) -> tuple[float, list[bool]]:
+def evaluate_bem_accuracy(
+    predictions: list[dict[str, Any]],
+    *,
+    verbose: bool = False,
+) -> tuple[float, list[bool]]:
     initialize_bem_model_and_transformers()
     flags: list[bool] = []
     for pred in predictions:
         question = str(pred.get("question") or "")
         prediction_text = _prediction_text(pred)
         references = [str(ref) for ref in _reference_values(pred) if not isinstance(ref, dict)]
-        flags.append(
-            any(run_bem_evaluation(question, reference, prediction_text) for reference in references)
-            if references
-            else False
-        )
+        if not references:
+            flags.append(False)
+            continue
+
+        joined_references = ",".join(references)
+        if verbose:
+            is_correct = run_bem_evaluation(question, joined_references, prediction_text, verbose=True)
+        else:
+            is_correct = run_bem_evaluation(question, joined_references, prediction_text)
+        if not is_correct:
+            if verbose:
+                is_correct = any(
+                    run_bem_evaluation(question, reference, prediction_text, verbose=True)
+                    for reference in references
+                )
+            else:
+                is_correct = any(
+                    run_bem_evaluation(question, reference, prediction_text)
+                    for reference in references
+                )
+        flags.append(is_correct)
     return _score(flags), flags
 
 
@@ -495,7 +531,7 @@ def evaluate_accuracy(
     args: argparse.Namespace | None = None,
 ) -> tuple[float, list[bool]]:
     if args is not None and getattr(args, "bem", False):
-        return evaluate_bem_accuracy(predictions)
+        return evaluate_bem_accuracy(predictions, verbose=getattr(args, "verbose", False))
     return evaluate_cem_accuracy(predictions)
 
 
