@@ -16,8 +16,10 @@ from agents.schemas import Evidence, Record, SearchResult, Trajectory
 from eval.main import (
     _eval_answer,
     _record_id,
+    assign_record_ids,
     build_config_from_args,
     build_output_path,
+    load_existing_predictions,
     maybe_merge_chunk_outputs,
     output_from_trajectory,
     slice_chunk,
@@ -279,13 +281,41 @@ class EvalMainTest(unittest.TestCase):
             ["q1", "q11"],
         )
 
-    def test_record_id_uses_dataset_image_ids_for_input_rows(self) -> None:
+    def test_record_id_falls_back_to_question_level_composite_for_legacy_rows(self) -> None:
         row = {
             "dataset_image_ids": "2715027",
+            "question": "What kind of medical usage has this plant?",
             "image_path": "/tmp/example.jpg",
         }
 
-        self.assertEqual(_record_id(row), "2715027")
+        self.assertEqual(
+            _record_id(row),
+            "2715027\tWhat kind of medical usage has this plant?\t/tmp/example.jpg",
+        )
+
+    def test_assign_record_ids_makes_evqa_rows_unique_even_for_reused_images(self) -> None:
+        rows = [
+            {
+                "dataset_image_ids": "2715027",
+                "question": "What kind of medical usage has this plant?",
+                "image_path": "/tmp/example.jpg",
+            },
+            {
+                "dataset_image_ids": "2715027",
+                "question": "How large does this plant become?",
+                "image_path": "/tmp/example.jpg",
+            },
+            {
+                "dataset_image_ids": "2715027",
+                "question": "How large does this plant become?",
+                "image_path": "/tmp/example.jpg",
+            },
+        ]
+
+        assigned = assign_record_ids(rows)
+
+        self.assertEqual(len({_record_id(row) for row in assigned}), 3)
+        self.assertTrue(all(row["record_id"].endswith(f"row:{index}") for index, row in enumerate(assigned)))
 
     def test_maybe_merge_chunk_outputs_merges_when_all_chunks_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -317,6 +347,60 @@ class EvalMainTest(unittest.TestCase):
             with base_path.open("r", encoding="utf-8") as handle:
                 merged_rows = [json.loads(line) for line in handle]
             self.assertEqual([row["question_id"] for row in merged_rows], [f"q{i}" for i in range(20)])
+
+    def test_load_existing_predictions_deduplicates_and_filters_stale_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "existing.jsonl"
+            expected_items = assign_record_ids(
+                [
+                    {
+                        "dataset_image_ids": "img0",
+                        "question": "q0",
+                        "image_path": "/tmp/0.jpg",
+                    },
+                    {
+                        "dataset_image_ids": "img1",
+                        "question": "q1",
+                        "image_path": "/tmp/1.jpg",
+                    },
+                ]
+            )
+            stale_item = assign_record_ids(
+                [
+                    {
+                        "dataset_image_ids": "img2",
+                        "question": "q2",
+                        "image_path": "/tmp/2.jpg",
+                    }
+                ]
+            )[0]
+
+            records = [
+                {
+                    "record_id": _record_id(expected_items[0]),
+                    "question": "q0",
+                    "trajectory": {"final_answer": "old"},
+                },
+                {
+                    "record_id": _record_id(expected_items[0]),
+                    "question": "q0",
+                    "trajectory": {"final_answer": "new"},
+                },
+                {
+                    "record_id": _record_id(stale_item),
+                    "question": "q2",
+                    "trajectory": {"final_answer": "stale"},
+                },
+            ]
+            with output_path.open("w", encoding="utf-8") as handle:
+                for record in records:
+                    handle.write(json.dumps(record) + "\n")
+
+            predictions, existing_ids = load_existing_predictions(output_path, expected_items)
+
+            self.assertEqual(len(predictions), 1)
+            self.assertEqual(predictions[0]["trajectory"]["final_answer"], "new")
+            self.assertEqual(existing_ids, {_record_id(expected_items[0])})
 
     def test_maybe_merge_chunk_outputs_skips_until_all_chunks_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

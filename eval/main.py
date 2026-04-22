@@ -62,17 +62,67 @@ def save_jsonl(path: str | Path, records: list[dict[str, Any]]) -> None:
             handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
+def _composite_record_id(record: dict[str, Any]) -> Any:
+    dataset_image_id = str(record.get("dataset_image_ids") or record.get("image_id") or "").strip()
+    question = str(record.get("question") or "").strip()
+    image_path = str(record.get("image_path") or "").strip()
+    if dataset_image_id or question or image_path:
+        return f"{dataset_image_id}\t{question}\t{image_path}"
+    return None
+
+
 def _record_id(record: dict[str, Any]) -> Any:
     return (
-        record.get("question_id")
+        record.get("record_id")
+        or record.get("__record_id__")
+        or record.get("question_id")
+        or _composite_record_id(record)
         or record.get("dataset_image_ids")
         or record.get("image_id")
         or record.get("image_path")
     )
 
 
+def assign_record_ids(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    assigned: list[dict[str, Any]] = []
+    for row_index, row in enumerate(rows):
+        item = dict(row)
+        question_id = str(item.get("question_id") or "").strip()
+        existing_record_id = str(item.get("record_id") or item.get("__record_id__") or "").strip()
+        if existing_record_id:
+            item["record_id"] = existing_record_id
+        elif question_id:
+            item["record_id"] = question_id
+        else:
+            composite_id = _composite_record_id(item)
+            item["record_id"] = f"{composite_id}\trow:{row_index}" if composite_id else f"row:{row_index}"
+        assigned.append(item)
+    return assigned
+
+
 def slice_chunk(rows: list[dict[str, Any]], *, chunk_id: int, num_chunks: int = 10) -> list[dict[str, Any]]:
     return [row for index, row in enumerate(rows) if index % num_chunks == chunk_id]
+
+
+def load_existing_predictions(
+    path: str | Path,
+    expected_items: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], set[Any]]:
+    expected_ids = [_record_id(item) for item in expected_items]
+    expected_id_set = {identifier for identifier in expected_ids if identifier is not None}
+    latest_by_id: dict[Any, dict[str, Any]] = {}
+
+    for prediction in load_jsonl(path):
+        prediction_id = _record_id(prediction)
+        if prediction_id in expected_id_set:
+            latest_by_id[prediction_id] = prediction
+
+    ordered_predictions = [
+        latest_by_id[identifier]
+        for identifier in expected_ids
+        if identifier in latest_by_id
+    ]
+    return ordered_predictions, set(latest_by_id)
 
 
 # ---------------------------------------------------------------------------
@@ -242,18 +292,18 @@ def maybe_merge_chunk_outputs(
     if not all(path.exists() for path in chunk_paths):
         return None
 
+    expected_ids = [_record_id(item) for item in expected_items]
+    expected_id_set = {identifier for identifier in expected_ids if identifier is not None}
     merged_by_id: dict[Any, dict[str, Any]] = {}
     for path in chunk_paths:
         for prediction in load_jsonl(path):
             prediction_id = _record_id(prediction)
-            if prediction_id in merged_by_id:
-                return None
-            merged_by_id[prediction_id] = prediction
+            if prediction_id in expected_id_set:
+                merged_by_id[prediction_id] = prediction
 
-    expected_ids = [_record_id(item) for item in expected_items]
     if any(identifier is None for identifier in expected_ids):
         return None
-    if set(merged_by_id) != set(expected_ids):
+    if any(identifier not in merged_by_id for identifier in expected_ids):
         return None
 
     merged_predictions = [merged_by_id[identifier] for identifier in expected_ids]
@@ -305,6 +355,7 @@ def _answer_eval_targets(item: dict[str, Any]) -> Any:
 
 def output_from_trajectory(item: dict[str, Any], traj: Trajectory) -> dict[str, Any]:
     return {
+        "record_id": _record_id(item),
         "question_id": item.get("question_id", item.get("dataset_image_ids", "")),
         "image_id": item.get("image_id", item.get("dataset_image_ids", "")),
         "dataset_name": item.get("dataset_name", ""),
@@ -436,7 +487,7 @@ def main() -> int:
     args = parser.parse_args()
     load_env_file(args.env_file)
 
-    data = load_jsonl(args.data, limit=args.limit)
+    data = assign_record_ids(load_jsonl(args.data, limit=args.limit))
     full_data = data
     if args.chunk_id is not None:
         data = slice_chunk(full_data, chunk_id=args.chunk_id)
@@ -459,8 +510,7 @@ def main() -> int:
     predictions: list[dict[str, Any]] = []
     existing_ids: set[Any] = set()
     if output_path.exists():
-        predictions = load_jsonl(output_path)
-        existing_ids = {_record_id(p) for p in predictions} - {None}
+        predictions, existing_ids = load_existing_predictions(output_path, data)
         if args.verbose:
             print(f"Resuming from {len(predictions)} existing predictions")
 

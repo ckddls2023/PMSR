@@ -548,7 +548,8 @@ def run_bem_evaluation(question: str, reference: str, candidate: str, *, verbose
     def pad(array: np.ndarray, length: int = _BEM_MAX_TOKENS) -> np.ndarray:
         current_length = array.shape[-1]
         if current_length >= length:
-            return array[-length:]
+            return array[:512]
+            #return array[-length:] # If you want to preserve question
         return np.append(array, np.zeros(length - current_length, np.int32))
 
     input_ids_array = input_ids.numpy()
